@@ -1,0 +1,10 @@
+[MASTER]
+disable= missing-module-docstring, missing-class-docstring, missing-function-docstring, missing-final-newline, C0325
+ignore-paths=.coveragerc
+ignore=.coveragerc
+[FORMAT]
+max-line-length=130
+
+# allow 1 or 2 length variable names
+good-names-rgxs=^[_a-zGW][_a-z0-9L]?$
+good-names=G, G_out

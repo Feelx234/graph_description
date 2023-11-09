@@ -55,3 +55,7 @@ MANIFEST
 
 
 env
+datasets
+notebooks/edges.csv
+notebooks/nodes.csv
+notebooks/english.txt
