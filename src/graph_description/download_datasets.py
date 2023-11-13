@@ -9,6 +9,10 @@ pubmed_link = r"https://github.com/shchur/gnn-benchmark/raw/master/data/npz/pubm
 cora_full_link = r"https://github.com/shchur/gnn-benchmark/raw/master/data/npz/cora_full.npz"
 citeseer_link = r"https://github.com/shchur/gnn-benchmark/raw/master/data/npz/citeseer.npz"
 
+# sienna data
+# https://www.stats.ox.ac.uk/~snijders/siena/siena_datasets.htm
+knecht_data = r"https://www.stats.ox.ac.uk/~snijders/siena/klas12b.zip"
+
 def download_datasets():
 
     print("filepath\t", Path(__file__).resolve())
@@ -32,8 +36,8 @@ def download_datasets():
     print("dataset_folder\t", parent)
 
     #assert parent.exists(), str(parent)
-    links = [cora_link, pubmed_link, cora_full_link, citeseer_link]
-    download_names = ["cora.npz", "pubmed.npz", "cora_full.npz", "citeseer.npz",]
+    links = [cora_link, pubmed_link, cora_full_link, citeseer_link, knecht_data]
+    download_names = ["cora.npz", "pubmed.npz", "cora_full.npz", "citeseer.npz", "klas12b.zip"]
     final_files = download_names
     #final_files = [("cit-HepPh.txt",), ("ca-AstroPh.txt",), networkscience_files, ("web-Google.txt",), ("soc-pokec-relationships.txt",)]
 
@@ -44,10 +48,18 @@ def download_datasets():
         def download_command_windows(link, parent, file):
             return "powershell wget " +"-Uri " + link +" -OutFile " + str(parent/file)
         dowload_command = download_command_windows
+
+        def unzip_command_windows(parent, file):
+            return "unzip "  + str(parent/file) + " -d " + str((parent/file).stem)
+        unzip_command = unzip_command_windows
     else:
         def download_command_linux(link, parent, file):
             return "wget " + link +" -P " + str(parent)
         dowload_command = download_command_linux
+
+        def unzip_command_linux(link, parent, file):
+            return "unzip " + str(file)
+        unzip_command = unzip_command_linux
 
 
     files = list(file.name for file in parent.iterdir())
@@ -70,7 +82,7 @@ def download_datasets():
             subprocess.call(command, shell=True , cwd=str(parent))
 
         if download_name.endswith(".zip"):
-            command = "unzip " + str(download_name)
+            command = unzip_command(parent, download_name)
             print("<<< extracting " + download_name)
             subprocess.call(command, shell=True , cwd=str(parent))
 

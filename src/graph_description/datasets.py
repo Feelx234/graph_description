@@ -4,6 +4,8 @@ import numpy as np
 import pandas as pd
 import networkx as nx
 
+from graph_description.utils import get_dataset_folder
+
 
 def is_in_ids(arr, ids):
     """Computes a bool array that is 1 if the corresponding entry in arr is in ids"""
@@ -230,3 +232,51 @@ def nx_read_attributed_graph(dataset_name, dataset_path=None):
     G = networkx_from_edges(edges, dataset.num_nodes, dataset.is_directed)
     df = dataset.get_node_attributes(dataset_path.resolve())
     return G, df
+
+
+
+
+
+def get_knecht_data(wave):
+    folder = get_dataset_folder()/"klas12b"
+
+    df = pd.read_csv(folder/"klas12b-demographics.dat", header=None, delimiter=" ")
+    df.drop(0, axis=1, inplace=True)
+    df.columns = ["sex", "age", "ethnicity", "father_religion"]
+    df.sex = pd.Categorical.from_codes(df.sex-1, ["female", "male"])
+    df.ethnicity = pd.Categorical.from_codes(df.ethnicity-1, ["Dutch", "non-Dutch"])
+    df.father_religion = pd.Categorical.from_codes(df.father_religion-1, ["Christian", "non-religious", "other religion"])
+    df_out = df
+
+    # advice
+    df = pd.read_csv(folder/"klas12b-advice.dat", header=None)
+    df.columns= ["advice"]
+
+    df[df.advice == 0]=np.nan
+    df_out["advice"] = df.advice
+
+    # alcohol
+    if wave > 1:
+        df = pd.read_csv(folder/"klas12b-alcohol.dat", header=None, delimiter=" ")
+        df.drop(0, axis=1, inplace=True)
+        alcohol_column = df[wave-1]-1
+        alcohol_column = pd.Categorical.from_codes(alcohol_column, categories = ["never", "once", "2-4 times", "5-10 times", "more than 10 times"], ordered=True)
+        df_out["alcohol"] = alcohol_column
+
+    # delinquency
+    df = pd.read_csv(folder/"klas12b-delinquency.dat", header=None, delimiter=" ")
+    df.drop(0, axis=1, inplace=True)
+
+    delin_column = df[wave]-1
+    delin_column = pd.Categorical.from_codes(delin_column, categories = ["never", "once", "2-4 times", "5-10 times", "more than 10 times"], ordered=True)
+    df_out["delinquency"] = delin_column
+
+    adj = np.loadtxt(folder/f"klas12b-net-{wave}.dat")
+    correct = adj<=1
+    np.logical_and(np.all(correct, axis=0), np.all(correct.T, axis=0))
+    rows_correct = np.any(correct, axis=1)
+    adj = adj[rows_correct, :]
+    adj = adj[:, rows_correct]
+    df_out = df_out[rows_correct]
+
+    return adj, df_out
