@@ -238,6 +238,12 @@ def nx_read_attributed_graph(dataset_name, dataset_path=None):
 
 
 def get_knecht_data(wave):
+    """Return the adjacency and attributes of the Knecht dataset
+    
+    Note that wave 1 does not include the alcohol column and not all students are present in all datasets
+    """
+
+
     folder = get_dataset_folder()/"klas12b"
 
     df = pd.read_csv(folder/"klas12b-demographics.dat", header=None, delimiter=" ")
@@ -271,6 +277,8 @@ def get_knecht_data(wave):
     delin_column = pd.Categorical.from_codes(delin_column, categories = ["never", "once", "2-4 times", "5-10 times", "more than 10 times"], ordered=True)
     df_out["delinquency"] = delin_column
 
+    df_out["identifier"] = df_out.index
+
     adj = np.loadtxt(folder/f"klas12b-net-{wave}.dat")
     correct = adj<=1
     np.logical_and(np.all(correct, axis=0), np.all(correct.T, axis=0))
@@ -278,5 +286,8 @@ def get_knecht_data(wave):
     adj = adj[rows_correct, :]
     adj = adj[:, rows_correct]
     df_out = df_out[rows_correct]
+
+    df_out.reset_index(drop=True, inplace=True)
+    
 
     return adj, df_out
