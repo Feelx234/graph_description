@@ -105,6 +105,11 @@ class Dataset:
             self.mapping=mapping
         return edges
 
+    def get_networkx(self, datasets_dir):
+        edges = self.get_edges(datasets_dir.resolve())
+        print(edges.ravel().max(), len(np.unique(edges.ravel())))
+        return networkx_from_edges(edges, self.num_nodes, self.is_directed)
+
 
     def __eq__(self, other):
         if isinstance(other, str):
@@ -155,6 +160,36 @@ class AttributedDataset(Dataset):
         return df
 
 
+from scipy.sparse import coo_array
+
+def npz_to_coo_array(data, prefix="attr"):
+    """convert data from npz file into coo sparse array
+    convert data from https://github.com/shchur/gnn-benchmark/tree/master/data
+      into sparse matrix """
+    assert prefix in ["adj", "attr"]
+    def to_indices(data):
+        n = len(data[prefix+"_indptr"]) -1
+        return np.repeat(np.arange(n), np.diff(data[prefix+"_indptr"]))
+
+    return coo_array((data[prefix+"_data"], (to_indices(data), data[prefix+"_indices"])), shape=data[prefix+"_shape"])
+
+class NpzDataset:
+    def __init__(self, name, file_name):
+        self.name = name
+        self.file_name = file_name
+
+    def get_networkx(self, datasets_dir):
+        data = np.load(datasets_dir/self.file_name)
+        adjacency = npz_to_coo_array(data, "adj")
+        return nx.from_scipy_sparse_array(adjacency, create_using=nx.DiGraph)
+
+    def get_node_attributes(self, datasets_dir):
+        data = np.load(datasets_dir/self.file_name)
+        attr_array = npz_to_coo_array(data, "attr")
+        df = pd.DataFrame.sparse.from_spmatrix(attr_array)
+        df["label"] = data["labels"]
+        return df
+
 
 deezer_data = AttributedDataset("deezer", "deezer/edges_directed.csv",
                                 delimiter=",",
@@ -179,12 +214,14 @@ covid_data.columns_to_drop = ["contact_number",
                               "deceased_date",
                               "infected_by",
                               "country"]
+
+citeseer_data = NpzDataset("citeseer", "citeseer.npz")
 # df_out = df[["infected_by"]]
 # df_out["id"] = df_out.index
 # df_out.dropna().to_csv("edges.csv", index=False)
 
 
-all_datasets_list = [deezer_data, covid_data]
+all_datasets_list = [deezer_data, covid_data, citeseer_data]
 all_datasets = {dataset.name : dataset for dataset in all_datasets_list}
 
 
@@ -224,12 +261,10 @@ def filter_min_component_size(G, df, min_component_size):
 
 def nx_read_attributed_graph(dataset_name, dataset_path=None):
     if dataset_path is None:
-        dataset_path = Path("../datasets/").absolute()
+        dataset_path = get_dataset_folder()
     dataset = all_datasets[dataset_name]
 
-    edges = dataset.get_edges(dataset_path.resolve())
-    print(edges.ravel().max(), len(np.unique(edges.ravel())))
-    G = networkx_from_edges(edges, dataset.num_nodes, dataset.is_directed)
+    G = dataset.get_networkx(dataset_path)
     df = dataset.get_node_attributes(dataset_path.resolve())
     return G, df
 
@@ -239,7 +274,7 @@ def nx_read_attributed_graph(dataset_name, dataset_path=None):
 
 def get_knecht_data(wave):
     """Return the adjacency and attributes of the Knecht dataset
-    
+
     Note that wave 1 does not include the alcohol column and not all students are present in all datasets
     """
 
@@ -288,6 +323,6 @@ def get_knecht_data(wave):
     df_out = df_out[rows_correct]
 
     df_out.reset_index(drop=True, inplace=True)
-    
+
 
     return adj, df_out

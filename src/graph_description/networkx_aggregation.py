@@ -87,7 +87,4 @@ def apply_aggregator(aggregator_classes, data, network, selectors=None):
 
     out_df = pd.concat(result_data, axis=1)
     out_selectors = ps.create_selectors(out_df)
-    #if not selectors is None:
-    #    out_selectors.extend(selectors)
-    
     return out_df, out_selectors
