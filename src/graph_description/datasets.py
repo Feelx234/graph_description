@@ -191,6 +191,55 @@ class NpzDataset:
         return df
 
 
+def form_name_from_group(name, group):
+        return group + "_" + name
+class TorchDataset:
+    def __init__(self, name, group):
+        self._name = name
+        self.name = form_name_from_group(name, group)
+        self.group = group.lower()
+        self.data = None
+
+    def get_networkx(self, datasets_dir):
+        self.ensure_data(datasets_dir)
+        return nx.from_edgelist(self.data.edge_index, create_using=nx.DiGraph)
+
+
+    def get_edges(self, datasets_dir):
+        self.ensure_data(datasets_dir)
+        return self.data.edge_index
+
+
+    def get_node_attributes(self, datasets_dir):
+        self.ensure_data(datasets_dir)
+        df = pd.DataFrame(self.data.x)
+        df["label"] = self.data.y
+        return df
+
+    def ensure_data(self, datasets_dir):
+        if self.data is None:
+            self._load_data(datasets_dir)
+
+
+    def _load_data(self, datasets_dir):
+        from graph_description.torch_port.torch_datasets import Planetoid, CitationFull
+        group_mapping = {
+            "planetoid" : Planetoid,
+            "citation" : CitationFull,
+            "citationfull" : CitationFull
+        }
+        assert self.group in group_mapping
+        group_class = group_mapping[self.group]
+        if group_class is CitationFull:
+            self.data = group_class(datasets_dir, self._name, to_undirected=False)._data
+        else:
+            self.data = group_class(datasets_dir, self._name)._data
+
+
+
+
+
+
 deezer_data = AttributedDataset("deezer", "deezer/edges_directed.csv",
                                 delimiter=",",
                                 num_nodes=54573,
@@ -217,12 +266,25 @@ covid_data.columns_to_drop = ["contact_number",
 
 citeseer_data = NpzDataset("citeseer", "citeseer.npz")
 pubmed_data = NpzDataset("pubmed", "pubmed.npz")
+
+planetoid_cora = TorchDataset("cora", "planetoid")
+planetoid_citeseer = TorchDataset("citeseer", "planetoid")
+planetoid_pubmed = TorchDataset("pubmed", "planetoid")
+planetoid_datasets = [planetoid_pubmed, planetoid_cora, planetoid_citeseer]
+
+citation_full_datasets = [
+     TorchDataset("cora", "citationfull"),
+     TorchDataset("cora_ml", "citationfull"),
+     TorchDataset("citeseer", "citationfull"),
+     TorchDataset("dblp", "citationfull"),
+     TorchDataset("pubmed", "citationfull")
+]
 # df_out = df[["infected_by"]]
 # df_out["id"] = df_out.index
 # df_out.dropna().to_csv("edges.csv", index=False)
 
 
-all_datasets_list = [deezer_data, covid_data, citeseer_data, pubmed_data]
+all_datasets_list = [deezer_data, covid_data, citeseer_data, pubmed_data] + planetoid_datasets + citation_full_datasets
 all_datasets = {dataset.name : dataset for dataset in all_datasets_list}
 
 
@@ -259,18 +321,32 @@ def filter_min_component_size(G, df, min_component_size):
     return G_out, df_out
 
 
+def choose_dataset(dataset_name, group=None):
+    if group is None:
+        dataset = all_datasets[dataset_name]
+    else:
+        dataset = all_datasets[form_name_from_group(dataset_name, group)]
+    return dataset
 
-def nx_read_attributed_graph(dataset_name, dataset_path=None):
+
+def nx_read_attributed_graph(dataset_name, dataset_path=None, group=None):
     if dataset_path is None:
         dataset_path = get_dataset_folder()
-    dataset = all_datasets[dataset_name]
+    dataset = choose_dataset(dataset_name, group)
 
     G = dataset.get_networkx(dataset_path)
     df = dataset.get_node_attributes(dataset_path.resolve())
     return G, df
 
 
+def edges_read_attributed_graph(dataset_name, dataset_path=None, group=None):
+    if dataset_path is None:
+        dataset_path = get_dataset_folder()
+    dataset = choose_dataset(dataset_name, group)
 
+    edges = dataset.get_edges(dataset_path)
+    df = dataset.get_node_attributes(dataset_path.resolve())
+    return edges, df
 
 
 def get_knecht_data(wave):
