@@ -216,12 +216,13 @@ covid_data.columns_to_drop = ["contact_number",
                               "country"]
 
 citeseer_data = NpzDataset("citeseer", "citeseer.npz")
+pubmed_data = NpzDataset("pubmed", "pubmed.npz")
 # df_out = df[["infected_by"]]
 # df_out["id"] = df_out.index
 # df_out.dropna().to_csv("edges.csv", index=False)
 
 
-all_datasets_list = [deezer_data, covid_data, citeseer_data]
+all_datasets_list = [deezer_data, covid_data, citeseer_data, pubmed_data]
 all_datasets = {dataset.name : dataset for dataset in all_datasets_list}
 
 
