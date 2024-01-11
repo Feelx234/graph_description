@@ -69,7 +69,7 @@ def read_txt_array(
     return parse_txt_array(src, sep, start, end, dtype, device)
 
 
-def read_planetoid_data(folder: str, prefix: str):
+def read_planetoid_data(folder: str, prefix: str, split:str):
     names = ['x', 'tx', 'allx', 'y', 'ty', 'ally', 'graph', 'test.index']
     items = [read_file(folder, prefix, name) for name in names]
 
@@ -133,9 +133,17 @@ def read_planetoid_data(folder: str, prefix: str):
     y[test_index] = y[sorted_test_index]
     y = np.array(y, dtype=np.int64)
 
-    train_mask = index_to_mask(train_index, size=y.shape[0])
-    val_mask = index_to_mask(val_index, size=y.shape[0])
-    test_mask = index_to_mask(test_index, size=y.shape[0])
+    if split.lower() == "geom-gcn":
+        def my_repeat(arr):
+            return np.repeat(arr.reshape(y.shape[0],1), 10, axis=1)
+        train_mask = my_repeat(index_to_mask(train_index, size=y.shape[0]))
+        val_mask = my_repeat(index_to_mask(val_index, size=y.shape[0]))
+        test_mask = my_repeat(index_to_mask(test_index, size=y.shape[0]))
+    else:
+        train_mask = index_to_mask(train_index, size=y.shape[0])
+        val_mask = index_to_mask(val_index, size=y.shape[0])
+        test_mask = index_to_mask(test_index, size=y.shape[0])
+
 
     edge_index = edge_index_from_dict(
         graph_dict=graph,  # type: ignore
@@ -404,6 +412,7 @@ class Planetoid(InMemoryDataset):
         transform: Optional[Callable] = None,
         pre_transform: Optional[Callable] = None,
         force_reload: bool = False,
+        log : bool = True
     ) -> None:
         self.name = name
 
@@ -411,12 +420,12 @@ class Planetoid(InMemoryDataset):
         assert self.split in ['public', 'full', 'geom-gcn', 'random']
 
         super().__init__(root, transform, pre_transform,
-                         force_reload=force_reload)
+                         force_reload=force_reload, log=log)
         self.load(self.processed_paths[0])
 
         if split == 'full':
             data = self.get(0)
-            data.train_mask.fill_(True)
+            data.train_mask.fill(True)
             data.train_mask[data.val_mask | data.test_mask] = False
             self.data, self.slices = self.collate([data])
 
@@ -469,7 +478,7 @@ class Planetoid(InMemoryDataset):
                 fs.cp(f'{url}_split_0.6_0.2_{i}.npz', self.raw_dir)
 
     def process(self) -> None:
-        data = read_planetoid_data(self.raw_dir, self.name)
+        data = read_planetoid_data(self.raw_dir, self.name, self.split)
 
         if self.split == 'geom-gcn':
             train_masks, val_masks, test_masks = [], [], []
@@ -479,9 +488,9 @@ class Planetoid(InMemoryDataset):
                 train_masks.append(splits['train_mask'])
                 val_masks.append(splits['val_mask'])
                 test_masks.append(splits['test_mask'])
-            data.train_mask = np.stack(train_masks, axis=1)
-            data.val_mask = np.stack(val_masks, axis=1)
-            data.test_mask = np.stack(test_masks, axis=1)
+            data.train_mask[:] = np.stack(train_masks, axis=1)
+            data.val_mask[:] = np.stack(val_masks, axis=1)
+            data.test_mask[:] = np.stack(test_masks, axis=1)
 
         data = data if self.pre_transform is None else self.pre_transform(data)
         self.save([data], self.processed_paths[0])
@@ -713,12 +722,13 @@ class CitationFull(InMemoryDataset):
         pre_transform: Optional[Callable] = None,
         to_undirected: bool = True,
         force_reload: bool = False,
+        log : bool = True
     ) -> None:
         self.name = name.lower()
         self.to_undirected = to_undirected
         assert self.name in ['cora', 'cora_ml', 'citeseer', 'dblp', 'pubmed']
         super().__init__(root, transform, pre_transform,
-                         force_reload=force_reload)
+                         force_reload=force_reload, log=log)
         self.load(self.processed_paths[0])
 
     @property

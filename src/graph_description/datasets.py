@@ -3,7 +3,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import networkx as nx
-
+from scipy.sparse import coo_array
 from graph_description.utils import get_dataset_folder
 
 
@@ -160,7 +160,7 @@ class AttributedDataset(Dataset):
         return df
 
 
-from scipy.sparse import coo_array
+
 
 def npz_to_coo_array(data, prefix="attr"):
     """convert data from npz file into coo sparse array
@@ -192,7 +192,7 @@ class NpzDataset:
 
 
 def form_name_from_group(name, group):
-        return group + "_" + name
+    return group + "_" + name
 class TorchDataset:
     def __init__(self, name, group):
         self._name = name
@@ -222,7 +222,7 @@ class TorchDataset:
 
 
     def _load_data(self, datasets_dir):
-        from graph_description.torch_port.torch_datasets import Planetoid, CitationFull
+        from graph_description.torch_port.torch_datasets import Planetoid, CitationFull #pylint:disable=import-outside-toplevel
         group_mapping = {
             "planetoid" : Planetoid,
             "citation" : CitationFull,
@@ -231,9 +231,9 @@ class TorchDataset:
         assert self.group in group_mapping
         group_class = group_mapping[self.group]
         if group_class is CitationFull:
-            self.data = group_class(datasets_dir, self._name, to_undirected=False)._data
+            self.data = group_class(datasets_dir, self._name, to_undirected=False)._data #pylint:disable=protected-access
         else:
-            self.data = group_class(datasets_dir, self._name)._data
+            self.data = group_class(datasets_dir, self._name)._data #pylint:disable=protected-access
 
 
 
@@ -378,7 +378,8 @@ def get_knecht_data(wave):
         df = pd.read_csv(folder/"klas12b-alcohol.dat", header=None, delimiter=" ")
         df.drop(0, axis=1, inplace=True)
         alcohol_column = df[wave-1]-1
-        alcohol_column = pd.Categorical.from_codes(alcohol_column, categories = ["never", "once", "2-4 times", "5-10 times", "more than 10 times"], ordered=True)
+        categories = ["never", "once", "2-4 times", "5-10 times", "more than 10 times"]
+        alcohol_column = pd.Categorical.from_codes(alcohol_column, categories=categories, ordered=True)
         df_out["alcohol"] = alcohol_column
 
     # delinquency
@@ -386,7 +387,8 @@ def get_knecht_data(wave):
     df.drop(0, axis=1, inplace=True)
 
     delin_column = df[wave]-1
-    delin_column = pd.Categorical.from_codes(delin_column, categories = ["never", "once", "2-4 times", "5-10 times", "more than 10 times"], ordered=True)
+    categories = ["never", "once", "2-4 times", "5-10 times", "more than 10 times"]
+    delin_column = pd.Categorical.from_codes(delin_column, categories=categories, ordered=True)
     df_out["delinquency"] = delin_column
 
     df_out["identifier"] = df_out.index
