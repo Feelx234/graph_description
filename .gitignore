@@ -59,3 +59,6 @@ datasets
 notebooks/edges.csv
 notebooks/nodes.csv
 notebooks/english.txt
+
+snakemake_base
+.snakemake

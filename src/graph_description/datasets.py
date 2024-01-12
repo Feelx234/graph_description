@@ -177,17 +177,28 @@ class NpzDataset:
     def __init__(self, name, file_name):
         self.name = name
         self.file_name = file_name
+        self.data = None
+
+    def ensure_data(self, datasets_dir):
+        self.data = np.load(datasets_dir/self.file_name)
 
     def get_networkx(self, datasets_dir):
-        data = np.load(datasets_dir/self.file_name)
-        adjacency = npz_to_coo_array(data, "adj")
+        self.ensure_data(datasets_dir)
+        adjacency = npz_to_coo_array(self.data, "adj")
         return nx.from_scipy_sparse_array(adjacency, create_using=nx.DiGraph)
 
+
+    def get_edges(self, datasets_dir):
+        self.ensure_data(datasets_dir)
+        adjacency = npz_to_coo_array(self.data, "adj")
+        edges = np.vstack((adjacency.row, adjacency.col))
+        return edges
+
     def get_node_attributes(self, datasets_dir):
-        data = np.load(datasets_dir/self.file_name)
-        attr_array = npz_to_coo_array(data, "attr")
+        self.ensure_data(datasets_dir)
+        attr_array = npz_to_coo_array(self.data, "attr")
         df = pd.DataFrame.sparse.from_spmatrix(attr_array)
-        df["label"] = data["labels"]
+        df["labels"] = self.data["labels"]
         return df
 
 
@@ -213,7 +224,7 @@ class TorchDataset:
     def get_node_attributes(self, datasets_dir):
         self.ensure_data(datasets_dir)
         df = pd.DataFrame(self.data.x)
-        df["label"] = self.data.y
+        df["labels"] = self.data.y
         return df
 
     def ensure_data(self, datasets_dir):
@@ -323,7 +334,7 @@ def filter_min_component_size(G, df, min_component_size):
 
 def choose_dataset(dataset_name, group=None):
     if group is None:
-        dataset = all_datasets[dataset_name]
+        dataset = all_datasets[dataset_name.lower()]
     else:
         dataset = all_datasets[form_name_from_group(dataset_name, group)]
     return dataset
@@ -339,7 +350,7 @@ def nx_read_attributed_graph(dataset_name, dataset_path=None, group=None):
     return G, df
 
 
-def edges_read_attributed_graph(dataset_name, dataset_path=None, group=None):
+def edges_read_attributed_graph(dataset_name, dataset_path=None, group=None, split=None):
     if dataset_path is None:
         dataset_path = get_dataset_folder()
     dataset = choose_dataset(dataset_name, group)
@@ -347,6 +358,55 @@ def edges_read_attributed_graph(dataset_name, dataset_path=None, group=None):
     edges = dataset.get_edges(dataset_path)
     df = dataset.get_node_attributes(dataset_path.resolve())
     return edges, df
+
+def create_random_split(df, num_train_per_class, num_val, num_test):
+    y = df["labels"].to_numpy()
+    num_classes = len(np.unique(y))
+    num_nodes = len(df)
+    train_mask = np.zeros(num_nodes, dtype=bool)
+
+    for c in range(num_classes):
+        idx = (y == c).nonzero()[0]
+        idx = idx[np.random.permutation(idx.shape[0])[:num_train_per_class]]
+        train_mask[idx] = True
+
+    remaining = (~train_mask).nonzero()[0]
+    remaining = remaining[np.random.permutation(remaining.shape[0])]#pylint:disable=unsubscriptable-object, no-member
+
+    val_mask = np.zeros(num_nodes, dtype=bool)
+    val_mask[remaining[:num_val]] = True
+
+    test_mask = np.zeros(num_nodes, dtype=bool)
+    if isinstance(num_test, str):
+        assert num_test in ("remaining", "rest"), f"num_test is {num_test} which is not valid"
+        test_mask[remaining[num_val:]] = True
+    else:
+        test_mask[remaining[num_val:num_val + num_test]] = True
+
+    return train_mask, val_mask, test_mask
+
+def read_attributed_graph(dataset_name, kind="edges", dataset_path=None, group=None, split=None):
+    if dataset_path is None:
+        dataset_path = get_dataset_folder()
+    if group=="None":
+        group = None
+    dataset = choose_dataset(dataset_name, group)
+    assert kind in ("edges", "nx", "networkx")
+
+    if kind in ("edges",):
+        graph = dataset.get_edges(dataset_path)
+    elif kind in ("nx", "networkx"):
+        graph = dataset.get_networkx(dataset_path)
+    else:
+        raise ValueError(f"Parameter kind is '{kind}' which is not supported.")
+    df = dataset.get_node_attributes(dataset_path.resolve())
+
+    if split is None:
+        return graph, df
+    else:
+        num_train_per_class, num_val, num_test = split
+        splits = create_random_split(df, num_train_per_class, num_val, num_test)
+        return graph, df, splits
 
 
 def get_knecht_data(wave):

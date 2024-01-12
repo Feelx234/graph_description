@@ -235,6 +235,24 @@ class TestCitationDatasetLoading(unittest.TestCase):
                     #self.check_hashes(dataset, data)
         #hash_tracker.pprint()
 
+from graph_description.datasets import edges_read_attributed_graph
+
+class TestIntendedLoading(unittest.TestCase):
+    def test_loading_planetoid_citation(self):
+        datasets = [
+            ("cora", "planetoid"),
+            ("citeseer", "planetoid"),
+            ("pubmed", "planetoid"),
+            ("cora", "citationfull"),
+            ("cora_ml", "citationfull"),
+            ("citeseer", "citationfull"),
+            ("dblp", "citationfull"),
+            ("pubmed", "citationfull"),
+        ]
+        d2 = {}
+        for name, group in datasets:
+            edges, df = edges_read_attributed_graph(name, dataset_path=folder, group=group)
+            d2[name+"_"+group] = (edges, df)
 
 
 if __name__ == "__main__":
