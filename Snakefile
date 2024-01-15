@@ -7,7 +7,7 @@ experiment_dir = default_dir+"/experiments"
 
 pickle_ending = ".pkl"
 npz_ending = ".npz"
-json_ending=".json"
+xgb_ending=".ubj"#".json"
 txt_ending=".txt"
 csv_ending=".csv"
 
@@ -64,7 +64,7 @@ rule run_aggregation:
 rule create_split:
     output : splits_dir+"/{dataset}_{group}/{num_train_per_class}_{num_val}_{num_test}_{split_seed}"+npz_ending
     run:
-        import numpy as np
+        import numpy as npxgb_ending
         from graph_description.datasets import read_attributed_graph, create_random_split
         G, df = read_attributed_graph(wildcards.dataset, kind="edges", group=wildcards.group)
         np.random.seed(int(wildcards.split_seed))
@@ -82,7 +82,7 @@ rule train_xgbclassifier:
         "/{dataset}_{group}"+
         "/round_{round}"+
         "/split_{num_train_per_class}_{num_val}_{num_test}_{split_seed}"+
-        "/xgbclass_{n_estimators}_{max_depth}_{clf_seed}"+json_ending)
+        "/xgbclass_{n_estimators}_{max_depth}_{clf_seed}"+xgb_ending)
     input :
         splits_dir+"/{dataset}_{group}/{num_train_per_class}_{num_val}_{num_test}_{split_seed}"+npz_ending,
         aggregated_datasets_dir+"/{dataset}_{group}_{round}"+pickle_ending
@@ -115,7 +115,7 @@ rule test_xgbclassifier:
         "/{dataset}_{group}"+
         "/round_{round}"+
         "/split_{num_train_per_class}_{num_val}_{num_test}_{split_seed}"+
-        "/xgbclass_{n_estimators}_{max_depth}_{clf_seed}"+json_ending),
+        "/xgbclass_{n_estimators}_{max_depth}_{clf_seed}"+xgb_ending),
         splits_dir+"/{dataset}_{group}/{num_train_per_class}_{num_val}_{num_test}_{split_seed}"+npz_ending,
         aggregated_datasets_dir+"/{dataset}_{group}_{round}"+pickle_ending
     output :
@@ -187,7 +187,7 @@ def agg_train_per_class_helper(wildcards):
         f"/score_{wildcards.score_name}"+
         f"/split_{num_train_per_class}_{wildcards.num_val}_{wildcards.num_test}_{split_seed}"+
         f"/xgbclass_{wildcards.n_estimators}_{wildcards.max_depth}_{wildcards.clf_seed}"+txt_ending)
-        for num_train_per_class, split_seed in product(c_range(max_num_train_for_network), list(range(int(wildcards.split_seed))))]
+        for num_train_per_class, split_seed in product(c_range(max_num_train_for_network), list(range(int(wildcards.max_split_seed))))]
     return result
 
 rule agg_train_per_class:
@@ -199,17 +199,39 @@ rule agg_train_per_class:
         "/{dataset}_{group}"+
         "/round_{round}"+
         "/score_{score_name}"+
-        "/split_auto_{num_val}_{num_test}_{split_seed}"+
+        "/split_auto_{num_val}_{num_test}_{max_split_seed}"+
         "/xgbclass_{n_estimators}_{max_depth}_{clf_seed}"+csv_ending),
     run :
         import numpy as np
         import pandas as pd
         records = []
-        wildcard_values = tuple(wildcards.values())
-        wildcard_keys = tuple(wildcards.keys())
+        #print(wildcards.keys())
+        wildcard_values = []
+        wildcard_keys = []
+        for key, value in wildcards.items():
+            if key =="input":
+                continue
+            else:
+                wildcard_values.append(value)
+                wildcard_keys.append(key)
+                print(key,value)
+        wildcard_values = tuple(wildcard_values)
+        wildcard_keys = tuple(wildcard_keys)
+        #print(wildcards.items())
+        #wildcard_values = tuple(wildcards.values())
+        #wildcard_keys = tuple(wildcards.keys())
+        def extract_num_train_from_path(s):
+            return int(s.split("split_")[1].split("/xgbclass")[0].split("_")[0])
+        def extract_split_seed_from_path(s):
+            return int(s.split("split_")[1].split("/xgbclass")[0].split("_")[3])
+
         for file_to_load in input:
-            val = np.load_txt(file_to_load)
-            records.append(wildcard_values+(file_to_load,val))
-        df = pd.DataFrame.from_records(records, columns=wildcard_keys+("path", "value"))
+            val = np.loadtxt(file_to_load)
+            train_per_class = extract_num_train_from_path(file_to_load)
+            split_seed = extract_split_seed_from_path(file_to_load)
+            records.append(wildcard_values+(train_per_class, split_seed, file_to_load,val))
+        df = pd.DataFrame.from_records(records, columns=wildcard_keys+("train_per_class", "split_seed", "path", "value"))
         df.to_csv(output[0], index=False)
+# snakemake .\snakemake_base\experiments\agg_train_per_class\citeseer_None\round_1\score_accuracy\split_auto_0_rest_10\xgbclass_10_2_0.csv --cores 1 -f
+
 # snakemake .\snakemake_base\experiments\agg_train_per_class\citeseer_None\round_1\score_accuracy\split_auto_0_rest_10\xgbclass_10_2_0.csv --cores 1 -f
