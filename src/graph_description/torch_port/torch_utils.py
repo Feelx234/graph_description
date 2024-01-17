@@ -3,7 +3,7 @@ from typing import Optional
 import numpy as np
 Tensor = type(np.array(0))
 from collections import namedtuple
-Data = namedtuple("Data", ['x', 'y', 'edge_index', 'train_mask', 'val_mask', 'test_mask'], defaults=(None, None, None))
+Data = namedtuple("Data", ['x', 'y', 'edge_index', 'train_mask', 'val_mask', 'test_mask', 'stopping_mask'], defaults=(None, None, None, None))
 
 def mask_select(src: Tensor, dim: int, mask: Tensor) -> Tensor:
     r"""Returns a new tensor which masks the :obj:`src` tensor along the

@@ -965,6 +965,8 @@ class InMemoryDataset(Dataset, ABC):
     def save(cls, data_list: Sequence[BaseData], path: str) -> None:
         r"""Saves a list of data objects to the file path :obj:`path`."""
         data, slices = cls.collate(data_list)
+        #if self.log:
+        #    print("saving to "+path)
         fs.torch_save((data._asdict(), slices), path)
 
     def load(self, path: str, data_cls: Type[BaseData] = Data) -> None:

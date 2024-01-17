@@ -600,6 +600,7 @@ import os
 import os.path as osp
 import ssl
 import urllib
+import urllib.request
 
 def download_url(
     url: str,
@@ -722,10 +723,12 @@ class CitationFull(InMemoryDataset):
         pre_transform: Optional[Callable] = None,
         to_undirected: bool = True,
         force_reload: bool = False,
-        log : bool = True
+        log : bool = True,
+        split = "public"
     ) -> None:
         self.name = name.lower()
         self.to_undirected = to_undirected
+        assert split is None or split =="public"
         assert self.name in ['cora', 'cora_ml', 'citeseer', 'dblp', 'pubmed']
         super().__init__(root, transform, pre_transform,
                          force_reload=force_reload, log=log)
@@ -758,3 +761,110 @@ class CitationFull(InMemoryDataset):
 
     def __repr__(self) -> str:
         return f'{self.name.capitalize()}Full()'
+
+
+
+import json
+from itertools import chain
+
+class WikiCS(InMemoryDataset):
+    r"""The semi-supervised Wikipedia-based dataset from the
+    `"Wiki-CS: A Wikipedia-Based Benchmark for Graph Neural Networks"
+    <https://arxiv.org/abs/2007.02901>`_ paper, containing 11,701 nodes,
+    216,123 edges, 10 classes and 20 different training splits.
+
+    Args:
+        root (str): Root directory where the dataset should be saved.
+        transform (callable, optional): A function/transform that takes in an
+            :obj:`torch_geometric.data.Data` object and returns a transformed
+            version. The data object will be transformed before every access.
+            (default: :obj:`None`)
+        pre_transform (callable, optional): A function/transform that takes in
+            an :obj:`torch_geometric.data.Data` object and returns a
+            transformed version. The data object will be transformed before
+            being saved to disk. (default: :obj:`None`)
+        is_undirected (bool, optional): Whether the graph is undirected.
+            (default: :obj:`True`)
+        force_reload (bool, optional): Whether to re-process the dataset.
+            (default: :obj:`False`)
+    """
+
+    url = 'https://github.com/pmernyei/wiki-cs-dataset/raw/master/dataset'
+
+    def __init__(
+        self,
+        root: str,
+        name: str="wikics",
+        transform: Optional[Callable] = None,
+        pre_transform: Optional[Callable] = None,
+        is_undirected: Optional[bool] = None,
+        force_reload: bool = False,
+                log : bool = True,
+                split = "public"
+    ) -> None:
+        if is_undirected is None:
+            #warnings.warn(
+            #    f"The {self.__class__.__name__} dataset now returns an "
+            #    f"undirected graph by default. Please explicitly specify "
+            #    f"'is_undirected=False' to restore the old behavior.")
+            is_undirected = True
+        self.is_undirected = is_undirected
+        self.name="wikics"
+        assert split == "public"
+        assert name.lower()=="wikics"
+        super().__init__(root, transform, pre_transform,
+                         force_reload=force_reload, log=log)
+        self.load(self.processed_paths[0])
+
+    @property
+    def raw_file_names(self) -> List[str]:
+        return ['data.json']
+
+    @property
+    def raw_dir(self) -> str:
+        return osp.join(self.root, self.name, 'raw')
+
+    @property
+    def processed_dir(self) -> str:
+        return osp.join(self.root, self.name, 'processed')
+
+    @property
+    def processed_file_names(self) -> str:
+        return 'data_undirected.npz' if self.is_undirected else 'data.npz'
+
+    def download(self) -> None:
+        for name in self.raw_file_names:
+            download_url(f'{self.url}/{name}', self.raw_dir)
+
+    def process(self) -> None:
+        with open(self.raw_paths[0], 'r') as f:
+            data = json.load(f)
+
+        x = np.array(data['features'], dtype=np.float64)
+        y = np.array(data['labels'], dtype=np.int64)
+
+        edges = [[(i, j) for j in js] for i, js in enumerate(data['links'])]
+        edges = list(chain(*edges))  # type: ignore
+        edge_index = np.array(edges, dtype=np.int64)
+        if self.is_undirected:
+            edge_index = to_undirected_fn(edge_index, num_nodes=x.shape[0])
+
+        train_mask = np.array(data['train_masks'], dtype=bool)
+        #train_mask = train_mask.t().contiguous()
+
+        val_mask = np.array(data['val_masks'], dtype=bool)
+        #val_mask = val_mask.t().contiguous()
+
+        test_mask = np.array(data['test_mask'], dtype=bool)
+
+        stopping_mask = np.array(data['stopping_masks'], dtype=bool)
+        #stopping_mask = stopping_mask.t().contiguous()
+
+        data = Data(x=x, y=y, edge_index=edge_index, train_mask=train_mask,
+                    val_mask=val_mask, test_mask=test_mask,
+                    stopping_mask=stopping_mask)
+
+        if self.pre_transform is not None:
+            data = self.pre_transform(data)
+
+        self.save([data], self.processed_paths[0])

@@ -140,6 +140,8 @@ class AttributedDataset(Dataset):
         self.attributes_file =  attributes_file
         self.index_col = index_col
         self.columns_to_drop=None
+        self.group="other"
+        self.identifier=form_identifier_from_group(self.name, self.group)
 
 
     def get_node_attributes(self, datasets_dir):
@@ -178,6 +180,8 @@ class NpzDataset:
         self.name = name
         self.file_name = file_name
         self.data = None
+        self.group="other"
+        self.identifier=form_identifier_from_group(self.name, self.group)
 
     def ensure_data(self, datasets_dir):
         self.data = np.load(datasets_dir/self.file_name)
@@ -202,12 +206,14 @@ class NpzDataset:
         return df
 
 
-def form_name_from_group(name, group):
-    return group + "_" + name
+def form_identifier_from_group(name, group=None):
+    return str(group).lower() + "_" + name.lower()
+
+
 class TorchDataset:
     def __init__(self, name, group):
-        self._name = name
-        self.name = form_name_from_group(name, group)
+        self.name = name
+        self.identifier = form_identifier_from_group(name, group)
         self.group = group.lower()
         self.data = None
 
@@ -233,18 +239,19 @@ class TorchDataset:
 
 
     def _load_data(self, datasets_dir):
-        from graph_description.torch_port.torch_datasets import Planetoid, CitationFull #pylint:disable=import-outside-toplevel
+        from graph_description.torch_port.torch_datasets import Planetoid, CitationFull, WikiCS #pylint:disable=import-outside-toplevel
         group_mapping = {
             "planetoid" : Planetoid,
             "citation" : CitationFull,
-            "citationfull" : CitationFull
+            "citationfull" : CitationFull,
+            "wikics" : WikiCS
         }
         assert self.group in group_mapping
         group_class = group_mapping[self.group]
         if group_class is CitationFull:
-            self.data = group_class(datasets_dir, self._name, to_undirected=False)._data #pylint:disable=protected-access
+            self.data = group_class(datasets_dir, self.name, to_undirected=False)._data #pylint:disable=protected-access
         else:
-            self.data = group_class(datasets_dir, self._name)._data #pylint:disable=protected-access
+            self.data = group_class(datasets_dir, self.name)._data #pylint:disable=protected-access
 
 
 
@@ -290,13 +297,17 @@ citation_full_datasets = [
      TorchDataset("dblp", "citationfull"),
      TorchDataset("pubmed", "citationfull")
 ]
+
+other_datasets = [
+    TorchDataset("wikics", "wikics"),
+]
 # df_out = df[["infected_by"]]
 # df_out["id"] = df_out.index
 # df_out.dropna().to_csv("edges.csv", index=False)
 
 
-all_datasets_list = [deezer_data, covid_data, citeseer_data, pubmed_data] + planetoid_datasets + citation_full_datasets
-all_datasets = {dataset.name : dataset for dataset in all_datasets_list}
+all_datasets_list = [deezer_data, covid_data, citeseer_data, pubmed_data] + planetoid_datasets + citation_full_datasets + other_datasets
+all_datasets = {dataset.identifier : dataset for dataset in all_datasets_list}
 
 
 
@@ -333,11 +344,20 @@ def filter_min_component_size(G, df, min_component_size):
 
 
 def choose_dataset(dataset_name, group=None):
-    if group is None:
-        dataset = all_datasets[dataset_name.lower()]
-    else:
-        dataset = all_datasets[form_name_from_group(dataset_name, group)]
-    return dataset
+    unique_identifier = form_identifier_from_group(dataset_name, group)
+    if unique_identifier in all_datasets:
+        return all_datasets[unique_identifier]
+
+    if group is None or group=="auto":
+        potential_datasets = [dataset for dataset in all_datasets.values() if dataset.name==dataset_name]
+        if len(potential_datasets) == 1:
+            return potential_datasets[0]
+        elif len(potential_datasets) == 0:
+            raise ValueError(f"Could not find a dataset with name {dataset_name}")
+        else:
+            dataset_names = [form_identifier_from_group(d.name, d.group) for d in potential_datasets]
+            raise ValueError(f"There is no unique dataset with name {dataset_name}. Found {dataset_names}")
+    raise ValueError(f"Could not find a dataset with name {dataset_name} and group {group} {list(all_datasets.keys())}")
 
 
 def nx_read_attributed_graph(dataset_name, dataset_path=None, group=None):
@@ -385,6 +405,8 @@ def create_random_split(df, num_train_per_class, num_val, num_test):
 
     return train_mask, val_mask, test_mask
 
+
+
 def read_attributed_graph(dataset_name, kind="edges", dataset_path=None, group=None, split=None):
     if dataset_path is None:
         dataset_path = get_dataset_folder()
@@ -403,10 +425,15 @@ def read_attributed_graph(dataset_name, kind="edges", dataset_path=None, group=N
 
     if split is None:
         return graph, df
+    elif split=="public":
+        num_train_per_class, num_val, num_test = split
+        splits = create_random_split(df, num_train_per_class, num_val, num_test)
+        return graph, df, splits
     else:
         num_train_per_class, num_val, num_test = split
         splits = create_random_split(df, num_train_per_class, num_val, num_test)
         return graph, df, splits
+
 
 
 def get_knecht_data(wave):
