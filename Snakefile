@@ -20,7 +20,8 @@ num_train_per_class_arr = [1,3,5,10,25,50,100,150,200]
 
 wildcard_constraints:
     split_seed="\d+",
-    num_train_per_class="\d+"
+    num_train_per_class="\d+",
+    early_stopping_rounds="^$|_\d+"
 
 rule run_aggregation0:
     output : aggregated_datasets_dir+"/{dataset}_{group}_-1"+pickle_ending
@@ -76,23 +77,26 @@ rule create_split:
             num_test = int(num_test)
         train_mask, val_mask, test_mask = create_random_split(df, int(wildcards.num_train_per_class), int(wildcards.num_val), num_test)
         np.savez(output[0], train_mask=train_mask, val_mask=val_mask, test_mask=test_mask)
-
-
+xgb_raw = "/xgbclass_{n_estimators}_{max_depth}_{clf_seed}{early_stopping_rounds}"
+xgb_str = xgb_raw+xgb_ending
 rule train_xgbclassifier:
     output :
         (classifier_dir+
         "/{dataset}_{group}"+
         "/round_{round}"+
         "/split_{num_train_per_class}_{num_val}_{num_test}_{split_seed}"+
-        "/xgbclass_{n_estimators}_{max_depth}_{clf_seed}"+xgb_ending)
+        xgb_str)
     input :
         splits_dir+"/{dataset}_{group}/{num_train_per_class}_{num_val}_{num_test}_{split_seed}"+npz_ending,
         aggregated_datasets_dir+"/{dataset}_{group}_{round}"+pickle_ending
+    threads :
+        4
     run :
         import numpy as np
         import pandas as pd
         splits = np.load(input[0])
         train_mask = splits["train_mask"]
+        val_mask = splits["val_mask"]
 
         df  = pd.read_pickle(input[1])
         train_df = df[train_mask]
@@ -102,12 +106,31 @@ rule train_xgbclassifier:
         y_train = train_df["labels"]
 
         from xgboost import XGBClassifier
-        bst = XGBClassifier(n_estimators=int(wildcards.n_estimators),
-            max_depth=int(wildcards.max_depth),
-            learning_rate=1,
-            objective='binary:logistic',
-            random_state=wildcards.clf_seed)
-        bst.fit(X_train, y_train)
+        if len(wildcards.early_stopping_rounds)>0:
+            if val_mask.sum()!=0:
+                val_df = df[val_mask]
+                X_val = val_df.drop("labels", axis=1)
+                y_val = val_df["labels"]
+
+                bst = XGBClassifier(n_estimators=int(wildcards.n_estimators),
+                max_depth=int(wildcards.max_depth),
+                learning_rate=1,
+                objective='binary:logistic',
+                random_state=wildcards.clf_seed,
+                n_jobs=threads,
+                early_stopping_rounds=int(wildcards.early_stopping_rounds[1:]))
+                bst.fit(X_train, y_train, eval_set=[(X_train, y_train), (X_val, y_val)], verbose=False)
+            else:
+                raise ValueError("Early stopping provided but validation set is empty!")
+        else:
+            bst = XGBClassifier(n_estimators=int(wildcards.n_estimators),
+                max_depth=int(wildcards.max_depth),
+                learning_rate=1,
+                objective='binary:logistic',
+                random_state=wildcards.clf_seed,
+                n_jobs=threads)
+            bst.fit(X_train, y_train)
+
         bst.save_model(output[0])
 
 
@@ -117,7 +140,7 @@ rule test_xgbclassifier:
         "/{dataset}_{group}"+
         "/round_{round}"+
         "/split_{num_train_per_class}_{num_val}_{num_test}_{split_seed}"+
-        "/xgbclass_{n_estimators}_{max_depth}_{clf_seed}"+xgb_ending),
+        xgb_str),
         splits_dir+"/{dataset}_{group}/{num_train_per_class}_{num_val}_{num_test}_{split_seed}"+npz_ending,
         aggregated_datasets_dir+"/{dataset}_{group}_{round}"+pickle_ending
     output :
@@ -126,7 +149,7 @@ rule test_xgbclassifier:
         "/round_{round}"+
         "/score_{score_name}"+
         "/split_{num_train_per_class}_{num_val}_{num_test}_{split_seed}"+
-        "/xgbclass_{n_estimators}_{max_depth}_{clf_seed}"+txt_ending),
+        xgb_raw+txt_ending),
     run :
         import numpy as np
         import pandas as pd
@@ -178,19 +201,37 @@ def c_range(the_stop, start=1):
 
 from itertools import product
 
+def effify(non_f_str: str):
+    f_string =  f'f"""{non_f_str}"""'
+    #print(f_string)
+    return f_string
+
+
+def unpack_wildcards(wildcards, _locals):
+    for key in wildcards.keys():
+        _locals[key]=wildcards[key]
+    #print(_locals)
+
 def agg_train_per_class_helper(wildcards):
     from graph_description.datasets import read_attributed_graph
     group= wildcards.group
     #G, df = read_attributed_graph(wildcards.dataset, kind="edges", group=wildcards.group)
     max_num_train_for_network = 200#np.bincount(df["labels"].to_numpy()).min()
+
+    unpack_wildcards(wildcards, globals())
+
+    print(n_estimators)
     result = [(scorer_dir+
         f"/{wildcards.dataset}_{wildcards.group}"+
         f"/round_{wildcards.round}"+
         f"/score_{wildcards.score_name}"+
         f"/split_{num_train_per_class}_{wildcards.num_val}_{wildcards.num_test}_{split_seed}"+
-        f"/xgbclass_{wildcards.n_estimators}_{wildcards.max_depth}_{wildcards.clf_seed}"+txt_ending)
+        eval(effify(xgb_raw), globals(), locals())+txt_ending)
         for num_train_per_class, split_seed in product(c_range(max_num_train_for_network), list(range(int(wildcards.max_split_seed))))]
+    print(result)
     return result
+
+    # message: "rule agg_train_per_class\r\n\toutput: {output}\r\n\twildcards: {wildcards}."
 
 rule agg_train_per_class:
     input :
@@ -202,7 +243,8 @@ rule agg_train_per_class:
         "/round_{round}"+
         "/score_{score_name}"+
         "/split_auto_{num_val}_{num_test}_{max_split_seed}"+
-        "/xgbclass_{n_estimators}_{max_depth}_{clf_seed}"+csv_ending),
+        xgb_raw+csv_ending),
+
     run :
         import numpy as np
         import pandas as pd
