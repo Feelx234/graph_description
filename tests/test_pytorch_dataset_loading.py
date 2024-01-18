@@ -1,7 +1,7 @@
 import unittest
 import hashlib
 
-from graph_description.torch_port.torch_datasets import Planetoid, CitationFull, WikiCS
+from graph_description.torch_port.torch_datasets import Planetoid, CitationFull, WikiCS, Coauthor
 from graph_description.utils import get_dataset_folder
 import numpy as np
 
@@ -24,17 +24,17 @@ d_x_target, d_y_target, d_e_target, d_s_train_target, d_s_val_target, d_s_test_t
  'citeseer': '448f8c04e02516b2784cfd3c5d82049f84ea77d6ef94c65ee19f8ea8b792b0fa',
  'pubmed': '973a30d7c0567fe67fb9026058f1105859f87d44981b7b88992d648877d174c7'}
 ,
-{'WikiCS': '41009cf2069adf98e98c165886c77515471015822736d041560a4d26a6cbc6eb',
- 'citeseer': 'ac01cf6f7b3fd88c3245191cc13b962d5173da7b78a3487b7aaa3cc290d11900',
- 'pubmed': 'e1c78d6230b975b4263e3670fe7269b0b621e4b455e6e8503cae09e0990bf5ef'}
+{'WikiCS': '62b8f8a7e4662d867366185f3a0ac4b9cc65f41fbd056886fa595f599b88864b',
+ 'citeseer': 'c7bbb9f62ceca4d966a3b5ea5af5eedc0c9b6cdcbadc5f0cc0899d8d1ed856af',
+ 'pubmed': 'e9072d5d29ac907824ae428b138b4a501a82e09eab11f6e916cb13dbfda5a7bc'}
 ,
 {('WikiCS', 'public'): 'bae72b6c94ccc6225757c3d81e65e9fabacc041304b5f09b198b13de87e57f6a',
  ('citeseer', 'full'): '7af341d90e92d0f51e173d7132b17d617344880dad8ea062747a7ec18a1ac666',
  ('citeseer', 'geom-gcn'): '046e0d6aa79604a2d39fd9ee11e12748849941ee772cb7004c0ee8a5e0e09f7c',
  ('citeseer', 'public'): '8efce52f9800be63f1ac0858b52958bbdde930d20ce5a0b4e5431c13a7d16eab',
  ('citeseer', 'random'): 'c745ef10828ce9bd7891ae504fa10a08d16f12bc99a29a981185cd1ca8ee536a',
- ('pubmed', 'geom-gcn'): 'ff047d7ae0a1118eabec8ac69e8d054b312660a9a87210361373251984f429a6',
  ('pubmed', 'full'): '0d692b33a33fd1347f131541f5432fb606894408783096023647aed51a75b415',
+ ('pubmed', 'geom-gcn'): 'ff047d7ae0a1118eabec8ac69e8d054b312660a9a87210361373251984f429a6',
  ('pubmed', 'public'): 'c212c436a88f7ca1f236f4e98a2ce1070e4a7e1bdf1d9f8e3899ee8d0aa8b429',
  ('pubmed', 'random'): '6692b00ea1e4a8226139b060ca4a49e4bc84895d3df5bebf40cf961542aa8e47'}
 ,
@@ -175,23 +175,29 @@ class SplitHashTracker:
 
 
 d_x_citation_target, d_y_citation_target, d_e_citation_target = (
-{'CiteSeer': 'bfd9b9b1d9c17e4c616f3a60b409a1299ba365f78353444d18c76ba5cada8b60',
+{'CS': '096765da2f82607819e60414448c82df43cf910c021bc3792cb6d50639a141e3',
+ 'CiteSeer': 'bfd9b9b1d9c17e4c616f3a60b409a1299ba365f78353444d18c76ba5cada8b60',
  'Cora': '710f556e2a1320533c41d573bf32de32fbc8409e8ff641ea655771a9d7a1c543',
  'Cora_ML': '86b1053a1f0defea0cbfc5c5e6543c32415c6aba8ecf037672a062a74ec4e3e5',
  'DBLP': 'dc135347e63952a401218347861fe2292978b23028cbacfd13befe3749e8b1b6',
- 'PubMed': 'e1d3b8f812556e585dba6b1b8375ed37f603852bd443307231709a35dfc3787b',}
+ 'PubMed': 'e1d3b8f812556e585dba6b1b8375ed37f603852bd443307231709a35dfc3787b',
+ 'physics': 'eaae2603cb01bfc676505632d22b3d265fcfd9aa2277d8f5120be413ed1cb07c'}
 ,
-{'CiteSeer': '50444478c7b13f99701b4cfb01c4c984a5138e7469df7f4ebdb30f6beb7dd14c',
+{'CS': '509267279163a242c6c20e1115abadd404865f84ccb569b8c365362474a3e507',
+ 'CiteSeer': '50444478c7b13f99701b4cfb01c4c984a5138e7469df7f4ebdb30f6beb7dd14c',
  'Cora': 'c0337b253b331a78e7613a8b8038867d9fae42d6c6cec44b3ec55b05b82e4991',
  'Cora_ML': 'a9f950be5894ac3a1dd69108dfc843dda81157569b0a44a515e744bc1b6e8eb7',
  'DBLP': '74fcbdea13195b1d05d5339471d71d96b41e15cc18b2927bf01eecce7c7f2519',
- 'PubMed': '973a30d7c0567fe67fb9026058f1105859f87d44981b7b88992d648877d174c7',}
+ 'PubMed': '973a30d7c0567fe67fb9026058f1105859f87d44981b7b88992d648877d174c7',
+ 'physics': 'fea50baeb7423da67febe00e4b2aa8798b4882519da3ef2132d43f0451c54ebd'}
 ,
-{'CiteSeer': '220ba2d2850103e52dbe16e7a82420e14e9dd15e7350c8f11fb8d2535766a749',
- 'Cora': 'c88426defea354deb76c98008dfc3a6eb3e1c73d533ffd7ceff166dced090267',
- 'Cora_ML': '6fb8f7acfeec68ee98358467afd4a53d24c5b2c882bbbdddca1b7174e27362b4',
- 'DBLP': '4dd8acfc55414fb27b09fead2357aa4b1acadae1da5ec3e497d1a4863c5b4baa',
- 'PubMed': 'cba1d66eae6ed39f2f1c46f97e6a52d4e7c3ce9b00d3a7a1c432f73e3eadfc67',}
+{'CS': '368e48e864ee32e8b4de6d79ade926ff3994550ef42beb12876e7f978b39e222',
+ 'CiteSeer': 'e5b50242a05d20ca814af5958d26882c39f95a65ddbc8037a9eae62e82149970',
+ 'Cora': '8cd6176dce8b8cc9c00d86dfc20229dd9897583fb294d7436217c9dae5ba779e',
+ 'Cora_ML': '5bdd0e585eb791af50d84e13c15a8ef7b2b03600197c1dbff72289d7e4aaf207',
+ 'DBLP': 'd566e8f0d9e95881384ade3070a0fb30652311f68a006f3d6bcb6e4562089766',
+ 'PubMed': '4a1b93271d624c9b351e972c975bad1662d1f2d58f3e85689cfc802c881fa1dd',
+ 'physics': '5ad3d47319c443e4204b965148b1d9b740ebd08c7189742291e3454a51141723'}
 )
 
 citation_targets = {
@@ -215,7 +221,7 @@ class TestDirectDatasetLoading(unittest.TestCase):
             self.assertEqual(current_hash, expected_hash, f"found hash inconsistency for key '{key}' {dataset} {split}")
 
 
-    def atest_loading_with_splits(self):
+    def test_loading_with_splits(self):
         """Testing consistency in model loading across multiple runs"""
         force_reload = True
         hash_tracker = HashTracker(tag="citation_", lookup=citation_targets)
@@ -223,8 +229,9 @@ class TestDirectDatasetLoading(unittest.TestCase):
         citation_datasets = ["Cora", "Cora_ML", "CiteSeer", "DBLP", "PubMed"]
         planetoid_datasets = ["citeseer", "pubmed", "Cora"]
         wikics_dataset = ["WikiCS",]
-        all_datasets = citation_datasets+planetoid_datasets+wikics_dataset
-
+        coauthor_dataset = ["CS","physics"]
+        all_datasets = citation_datasets+planetoid_datasets+wikics_dataset+coauthor_dataset
+        #all_datasets = coauthor_dataset
         for dataset in all_datasets:
             if dataset in wikics_dataset:
                 dataset_cls = WikiCS
@@ -233,20 +240,24 @@ class TestDirectDatasetLoading(unittest.TestCase):
             elif dataset in citation_datasets:
                 dataset_cls = CitationFull
                 tracker = hash_tracker
-                splits = ["public"]
+                splits = [None]
             elif dataset in planetoid_datasets:
                 dataset_cls = Planetoid
                 tracker = split_tracker
                 splits = ["public", "full", "geom-gcn", "random"]
-            for force_reload in [False]:
+            elif dataset in coauthor_dataset:
+                dataset_cls = Coauthor
+                tracker = hash_tracker
+                splits = [None]
+            for force_reload in [False, True]:
                 for split in splits:
-                    with self.subTest(f"reload_test", dataset=dataset, force_reload=force_reload, split=split):
+                    with self.subTest("reload_test", dataset=dataset, force_reload=force_reload, split=split):
                         np.random.seed(0)
                         data = dataset_cls(folder, dataset, force_reload=force_reload, log=False, split=split)
                         tracker.add_hashes(dataset, split, data)
                         self.check_hashes(tracker, dataset, split)
-        # hash_tracker.pprint()
-        # split_tracker.pprint()
+        hash_tracker.pprint()
+        split_tracker.pprint()
 
 from graph_description.datasets import edges_read_attributed_graph
 from collections import Counter
@@ -263,6 +274,8 @@ class TestIntendedLoading(unittest.TestCase):
             ("dblp", "citationfull"),
             ("pubmed", "citationfull"),
             ("wikics", "wikics"),
+            ("physics", "coauthor"),
+            ("cs", "coauthor")
         ]
 
 
@@ -270,22 +283,22 @@ class TestIntendedLoading(unittest.TestCase):
         """Smoke test that test whether all datasets can be loaded by full path"""
         for name, group in self.datasets:
             edges, df = edges_read_attributed_graph(name, dataset_path=folder, group=group)
+            self.assertEqual(edges.shape[1], 2, msg=f"Make sure the edges are returned in correct format {name} {group}")
 
 
     def test_loading_auto(self):
         """Smoke test that test whether all datasets can be loaded by specifying name only
         This also makes sure errors are raised for non unique names
         """
-        for name, group in self.datasets:
-            edges, df = edges_read_attributed_graph(name, dataset_path=folder, group=group)
         non_unique_datasets = set(key for key,value in Counter(name for name, group in self.datasets).items() if value>1)
 
-        for name, _ in self.datasets:
+        for name, group in self.datasets:
             if name in non_unique_datasets:
                 with self.assertRaises(ValueError):
                     edges, df = edges_read_attributed_graph(name, dataset_path=folder, group=None)
             else:
                 edges, df = edges_read_attributed_graph(name, dataset_path=folder, group=None)
+                self.assertEqual(edges.shape[1], 2, msg=f"Make sure the edges are returned in correct format {name} {group}")
 
 
 

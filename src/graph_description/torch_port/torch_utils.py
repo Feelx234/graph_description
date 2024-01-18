@@ -175,30 +175,33 @@ def coalesce(  # noqa: F811
                 [3, 1, 2]]),
         tensor([1., 1., 1.]))
     """
-    num_edges = edge_index[0].shape[0]
+    num_edges = edge_index.shape[1]
+    #print("num edges", num_edges)
     num_nodes = maybe_num_nodes(edge_index, num_nodes)
+    #print(edge_index)
 
-    idx = np.empty(num_edges + 1, np.int64)
-    idx[0] = -1
-    idx[1:] = edge_index[1 - int(sort_by_row)]
-    idx[1:]*=num_nodes
-    idx[1:]+=(edge_index[int(sort_by_row)])
+    #print()
 
+    assert edge_attr==MISSING
     if not is_sorted:
-        idx[1:], perm = index_sort(idx[1:], max_value=num_nodes * num_nodes)
-        if isinstance(edge_index, Tensor):
-            edge_index = edge_index[:, perm]
-        elif isinstance(edge_index, tuple):
-            edge_index = (edge_index[0][perm], edge_index[1][perm])
-        else:
-            raise NotImplementedError
-        if isinstance(edge_attr, Tensor):
-            edge_attr = edge_attr[perm]
-        elif isinstance(edge_attr, (list, tuple)):
-            edge_attr = [e[perm] for e in edge_attr]
-
-    mask = idx[1:] > idx[:-1]
-
+        sort_order = np.lexsort(edge_index)
+        edge_index = edge_index[:,sort_order]
+        # idx[1:], perm = index_sort(idx[1:], max_value=num_nodes * num_nodes)
+        # if isinstance(edge_index, Tensor):
+        #     edge_index = edge_index[:, perm]
+        # elif isinstance(edge_index, tuple):
+        #     edge_index = (edge_index[0][perm], edge_index[1][perm])
+        # else:
+        #     raise NotImplementedError
+        # if isinstance(edge_attr, Tensor):
+        #     edge_attr = edge_attr[perm]
+        # elif isinstance(edge_attr, (list, tuple)):
+        #     edge_attr = [e[perm] for e in edge_attr]
+    #print(edge_index[:, :10].T)
+    mask = np.empty(num_edges, dtype=bool)
+    mask[0] = True
+    mask[1:] = np.logical_not(((edge_index[:, :-1]-edge_index[:, 1:])==0).sum(axis=0)==2)
+    #print("mask", mask[:10])
     # Only perform expensive merging in case there exists duplicates:
     if mask.all():
         if edge_attr is None or isinstance(edge_attr, Tensor):

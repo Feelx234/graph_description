@@ -97,7 +97,6 @@ class Dataset:
                          header=None,
                          sep=self.delimiter,
                          names=["from", "to"])
-        print(df["from"])
         edges = np.array([df["from"].to_numpy(), df["to"].to_numpy()],dtype=np.uint64).T
 
         if self.requires_node_renaming:
@@ -196,6 +195,8 @@ class NpzDataset:
         self.ensure_data(datasets_dir)
         adjacency = npz_to_coo_array(self.data, "adj")
         edges = np.vstack((adjacency.row, adjacency.col))
+        if edges.shape[1]!=2:
+            return edges.T
         return edges
 
     def get_node_attributes(self, datasets_dir):
@@ -219,12 +220,16 @@ class TorchDataset:
 
     def get_networkx(self, datasets_dir):
         self.ensure_data(datasets_dir)
-        return nx.from_edgelist(self.data.edge_index, create_using=nx.DiGraph)
+        edge_index = self.get_edges(datasets_dir)
+        return nx.from_edgelist(edge_index, create_using=nx.DiGraph)
 
 
     def get_edges(self, datasets_dir):
         self.ensure_data(datasets_dir)
-        return self.data.edge_index
+        edge_index = self.data.edge_index
+        if edge_index.shape[1]!=2:
+            edge_index = edge_index.T
+        return edge_index
 
 
     def get_node_attributes(self, datasets_dir):
@@ -239,12 +244,13 @@ class TorchDataset:
 
 
     def _load_data(self, datasets_dir):
-        from graph_description.torch_port.torch_datasets import Planetoid, CitationFull, WikiCS #pylint:disable=import-outside-toplevel
+        from graph_description.torch_port.torch_datasets import Planetoid, CitationFull, WikiCS, Coauthor #pylint:disable=import-outside-toplevel
         group_mapping = {
             "planetoid" : Planetoid,
             "citation" : CitationFull,
             "citationfull" : CitationFull,
-            "wikics" : WikiCS
+            "wikics" : WikiCS,
+            "coauthor" : Coauthor
         }
         assert self.group in group_mapping
         group_class = group_mapping[self.group]
@@ -300,13 +306,18 @@ citation_full_datasets = [
 
 other_datasets = [
     TorchDataset("wikics", "wikics"),
+    TorchDataset("cs", "coauthor"),
+    TorchDataset("physics", "coauthor"),
 ]
 # df_out = df[["infected_by"]]
 # df_out["id"] = df_out.index
 # df_out.dropna().to_csv("edges.csv", index=False)
 
 
-all_datasets_list = [deezer_data, covid_data, citeseer_data, pubmed_data] + planetoid_datasets + citation_full_datasets + other_datasets
+all_datasets_list = ([deezer_data, covid_data, citeseer_data, pubmed_data] +
+                     planetoid_datasets +
+                     citation_full_datasets +
+                     other_datasets)
 all_datasets = {dataset.identifier : dataset for dataset in all_datasets_list}
 
 
@@ -343,6 +354,7 @@ def filter_min_component_size(G, df, min_component_size):
     return G_out, df_out
 
 
+
 def choose_dataset(dataset_name, group=None):
     unique_identifier = form_identifier_from_group(dataset_name, group)
     if unique_identifier in all_datasets:
@@ -360,6 +372,7 @@ def choose_dataset(dataset_name, group=None):
     raise ValueError(f"Could not find a dataset with name {dataset_name} and group {group} {list(all_datasets.keys())}")
 
 
+
 def nx_read_attributed_graph(dataset_name, dataset_path=None, group=None):
     if dataset_path is None:
         dataset_path = get_dataset_folder()
@@ -370,6 +383,7 @@ def nx_read_attributed_graph(dataset_name, dataset_path=None, group=None):
     return G, df
 
 
+
 def edges_read_attributed_graph(dataset_name, dataset_path=None, group=None, split=None):
     if dataset_path is None:
         dataset_path = get_dataset_folder()
@@ -378,6 +392,8 @@ def edges_read_attributed_graph(dataset_name, dataset_path=None, group=None, spl
     edges = dataset.get_edges(dataset_path)
     df = dataset.get_node_attributes(dataset_path.resolve())
     return edges, df
+
+
 
 def create_random_split(df, num_train_per_class, num_val, num_test):
     y = df["labels"].to_numpy()

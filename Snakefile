@@ -34,7 +34,7 @@ rule run_aggregation0:
         G, df = read_attributed_graph(wildcards.dataset, kind="nx", group=wildcards.group)
         searchspace = ps.create_selectors(df, ignore=['labels'])
         searchspace = [sel for sel in searchspace if "==0" not in str(sel)]
-        print(output)
+        #print(output)
         df.to_pickle(output[0])
 
 rule run_aggregation:
@@ -45,8 +45,10 @@ rule run_aggregation:
         import pysubgroup as ps
         from graph_description.networkx_aggregation import SumAggregator, MeanAggregator, apply_aggregator
         from graph_description.datasets import read_attributed_graph
-
-        G, df = read_attributed_graph(wildcards.dataset, kind="nx", group=wildcards.group)
+        try:
+            G, df = read_attributed_graph(wildcards.dataset, kind="nx", group=wildcards.group)
+        except ValueError:
+            G, df = read_attributed_graph(wildcards.dataset, kind="nx", group="other")
         searchspace = ps.create_selectors(df, ignore=['labels'])
         searchspace = [sel for sel in searchspace if "==0" not in str(sel)]
         dfs = [df]
@@ -55,7 +57,7 @@ rule run_aggregation:
         for i in range(int(wildcards.round)):
             df = apply_aggregator((SumAggregator, MeanAggregator), df, G)
             dfs.append(df)
-        print(df.shape)
+        #print(df.shape)
         total_df = pd.concat(dfs, axis=1)
         total_df.columns= list(map(fix_column_name, total_df.columns))
         total_df.to_pickle(output[0])
@@ -150,7 +152,7 @@ rule test_xgbclassifier:
         score = scorer(y_test, y_test_predict)
         score = np.array([score])
         np.savetxt(output[0], score)
-        print(list(wildcards.keys()))
+        #print(list(wildcards.keys()))
 
 def c_range(the_stop, start=1):
     vals = [(1,6),
@@ -179,8 +181,8 @@ from itertools import product
 def agg_train_per_class_helper(wildcards):
     from graph_description.datasets import read_attributed_graph
     group= wildcards.group
-    G, df = read_attributed_graph(wildcards.dataset, kind="edges", group=wildcards.group)
-    max_num_train_for_network = np.bincount(df["labels"].to_numpy()).min()
+    #G, df = read_attributed_graph(wildcards.dataset, kind="edges", group=wildcards.group)
+    max_num_train_for_network = 200#np.bincount(df["labels"].to_numpy()).min()
     result = [(scorer_dir+
         f"/{wildcards.dataset}_{wildcards.group}"+
         f"/round_{wildcards.round}"+
@@ -214,7 +216,7 @@ rule agg_train_per_class:
             else:
                 wildcard_values.append(value)
                 wildcard_keys.append(key)
-                print(key,value)
+                #print(key,value)
         wildcard_values = tuple(wildcard_values)
         wildcard_keys = tuple(wildcard_keys)
         #print(wildcards.items())
