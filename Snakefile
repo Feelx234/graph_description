@@ -20,8 +20,14 @@ num_train_per_class_arr = [1,3,5,10,25,50,100,150,200]
 
 wildcard_constraints:
     split_seed="\d+",
-    num_train_per_class="\d+",
-    early_stopping_rounds="^$|_\d+"
+    num_train_per_class="auto|\d+|max_\d+",
+    early_stopping_rounds=".*|_\d+"
+
+
+rule test_range:
+    output : aggregated_datasets_dir+"/{test}.txt"
+    run:
+        print(list(eval(wildcards.test)))
 
 rule run_aggregation0:
     output : aggregated_datasets_dir+"/{dataset}_{group}_-1"+pickle_ending
@@ -46,10 +52,10 @@ rule run_aggregation:
         import pysubgroup as ps
         from graph_description.networkx_aggregation import SumAggregator, MeanAggregator, apply_aggregator
         from graph_description.datasets import read_attributed_graph
-        try:
-            G, df = read_attributed_graph(wildcards.dataset, kind="nx", group=wildcards.group)
-        except ValueError:
-            G, df = read_attributed_graph(wildcards.dataset, kind="nx", group="other")
+        #try:
+        G, df = read_attributed_graph(wildcards.dataset, kind="nx", group=wildcards.group)
+        #except ValueError:
+        #    G, df = read_attributed_graph(wildcards.dataset, kind="nx", group="other")
         searchspace = ps.create_selectors(df, ignore=['labels'])
         searchspace = [sel for sel in searchspace if "==0" not in str(sel)]
         dfs = [df]
@@ -70,6 +76,7 @@ rule create_split:
         import numpy as npxgb_ending
         from graph_description.datasets import read_attributed_graph, create_random_split
         G, df = read_attributed_graph(wildcards.dataset, kind="edges", group=wildcards.group)
+        print(np.max(G), print(df.shape))
         np.random.seed(int(wildcards.split_seed))
         if wildcards.num_test == "rest":
             num_test = "rest"
@@ -199,6 +206,8 @@ def c_range(the_stop, start=1):
         start=stop
     return out
 
+crange=c_range
+
 from itertools import product
 
 def effify(non_f_str: str):
@@ -209,17 +218,25 @@ def effify(non_f_str: str):
 
 def unpack_wildcards(wildcards, _locals):
     for key in wildcards.keys():
-        _locals[key]=wildcards[key]
+        print(key)
+        if key.startswith("dyn_"):
+            value = eval(wildcards[key])
+            if isinstance(value, (list, tuple, range)):
+                _locals[key]=value
+            else:
+                _locals[key]=(value,)
+        else:
+            _locals[key]=wildcards[key]
     #print(_locals)
 
 def agg_train_per_class_helper(wildcards):
     from graph_description.datasets import read_attributed_graph
     group= wildcards.group
     #G, df = read_attributed_graph(wildcards.dataset, kind="edges", group=wildcards.group)
-    max_num_train_for_network = 200#np.bincount(df["labels"].to_numpy()).min()
-
+    #max_num_train_for_network = 200#np.bincount(df["labels"].to_numpy()).min()
+    print("AAAA")
     unpack_wildcards(wildcards, globals())
-
+    #print(globals())
     print(n_estimators)
     result = [(scorer_dir+
         f"/{wildcards.dataset}_{wildcards.group}"+
@@ -227,7 +244,7 @@ def agg_train_per_class_helper(wildcards):
         f"/score_{wildcards.score_name}"+
         f"/split_{num_train_per_class}_{wildcards.num_val}_{wildcards.num_test}_{split_seed}"+
         eval(effify(xgb_raw), globals(), locals())+txt_ending)
-        for num_train_per_class, split_seed in product(c_range(max_num_train_for_network), list(range(int(wildcards.max_split_seed))))]
+        for num_train_per_class, split_seed in product(dyn_num_train_per_class, dyn_split_seed)]
     print(result)
     return result
 
@@ -242,7 +259,7 @@ rule agg_train_per_class:
         "/{dataset}_{group}"+
         "/round_{round}"+
         "/score_{score_name}"+
-        "/split_auto_{num_val}_{num_test}_{max_split_seed}"+
+        "/split_{dyn_num_train_per_class}_{num_val}_{num_test}_{dyn_split_seed}"+
         xgb_raw+csv_ending),
 
     run :
@@ -279,3 +296,8 @@ rule agg_train_per_class:
 # snakemake .\snakemake_base\experiments\agg_train_per_class\citeseer_None\round_1\score_accuracy\split_auto_0_rest_10\xgbclass_10_2_0.csv --cores 1 -f
 
 # snakemake .\snakemake_base\experiments\agg_train_per_class\citeseer_None\round_1\score_accuracy\split_auto_0_rest_10\xgbclass_10_2_0.csv --cores 1 -f
+
+
+
+# snakemake ".\snakemake_base\experiments\agg_train_per_class\pubmed_planetoid\round_0\score_accuracy\split_1_0_rest_0\xgbclass_10_2_0.csv"
+

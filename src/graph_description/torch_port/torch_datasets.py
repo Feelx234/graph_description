@@ -72,15 +72,20 @@ def read_txt_array(
 def read_planetoid_data(folder: str, prefix: str, split:str):
     names = ['x', 'tx', 'allx', 'y', 'ty', 'ally', 'graph', 'test.index']
     items = [read_file(folder, prefix, name) for name in names]
+    for name, item in zip(names, items):
+        if name=="graph":
+            continue
+        #print(name, item)
+        #if hasattr(item, "shape"):
+        #    print(item.shape)
 
     x, tx, allx, y, ty, ally, graph, test_index = items
     test_index = test_index.ravel()
     train_index = np.arange(y.shape[0], dtype=np.int64)
     val_index = np.arange(y.shape[0], y.shape[0] + 500, dtype=np.int64)
-    sorted_test_index = test_index.copy()
-    sorted_test_index.sort()
-    sorted_test_index = sorted_test_index.ravel()#[0]
-
+    #sorted_test_index = test_index.copy()
+    #sorted_test_index.sort()
+    #sorted_test_index = sorted_test_index.ravel()#[0]
     if prefix.lower() == 'citeseer':
         # There are some isolated nodes in the Citeseer graph, resulting in
         # none consecutive test indices. We need to identify them and add them
@@ -88,9 +93,9 @@ def read_planetoid_data(folder: str, prefix: str, split:str):
         len_test_indices = int(test_index.max() - test_index.min()) + 1
 
         tx_ext = np.zeros((len_test_indices, tx.shape[1]), dtype=tx.dtype)
-        tx_ext[sorted_test_index - test_index.min(), :] = tx
+        #tx_ext[sorted_test_index - test_index.min(), :] = tx
         ty_ext = np.zeros((len_test_indices, ty.shape[1]), dtype=ty.dtype)
-        ty_ext[sorted_test_index - test_index.min(), :] = ty
+        #ty_ext[sorted_test_index - test_index.min(), :] = ty
 
         tx, ty = tx_ext, ty_ext
 
@@ -127,10 +132,13 @@ def read_planetoid_data(folder: str, prefix: str, split:str):
         x = coo_array((np.concatenate(values), (np.concatenate(cols), np.concatenate(rows))), shape=x.shape)
     else:
         x = np.concatenate([allx, tx], axis=0)
-        x[test_index] = x[sorted_test_index]
+
+        #x[test_index,:] = x[sorted_test_index,:]
+        print("nonzero_entries ", (x > 0).sum())
+
 
     y = np.argmax(np.concatenate([ally, ty], axis=0),axis=1)#.max(axis=1)#[1]
-    y[test_index] = y[sorted_test_index]
+    #y[test_index] = y[sorted_test_index]
     y = np.array(y, dtype=np.int64)
 
     if split.lower() == "geom-gcn":
@@ -149,7 +157,22 @@ def read_planetoid_data(folder: str, prefix: str, split:str):
         graph_dict=graph,  # type: ignore
         num_nodes=y.shape[0],
     )
+    default_num_nodes = x.shape[0]
+    zero_indices = np.bincount(edge_index.ravel(), minlength=x.shape[0])
+    new_num_nodes = (zero_indices>0).sum()
+    if not np.all(zero_indices>0):
+        print(f"removing {default_num_nodes-new_num_nodes} zero degree nodes")
+        keep_nodes = zero_indices > 0
+        new_node_labels = np.zeros(default_num_nodes, dtype=np.int32)
+        new_node_labels[keep_nodes] = np.arange(new_num_nodes)
+        edge_index = new_node_labels[edge_index.ravel()].reshape(edge_index.shape)
+        x = x[keep_nodes, :]
+        y = y[keep_nodes]
+        train_mask = train_mask[keep_nodes]
+        test_mask = test_mask[keep_nodes]
+        val_mask = val_mask[keep_nodes]
 
+    x = coo_array(x)
     data = Data(x, y, edge_index, train_mask, val_mask, test_mask)
 
     return data
@@ -451,14 +474,14 @@ class Planetoid(InMemoryDataset):
     @property
     def raw_dir(self) -> str:
         if self.split == 'geom-gcn':
-            return osp.join(self.root, self.name, 'geom-gcn', 'raw')
-        return osp.join(self.root, self.name, 'raw')
+            return osp.join(self.root, "planetoid",  self.name, 'geom-gcn', 'raw')
+        return osp.join(self.root, "planetoid", self.name, 'raw')
 
     @property
     def processed_dir(self) -> str:
         if self.split == 'geom-gcn':
-            return osp.join(self.root, self.name, 'geom-gcn', 'processed')
-        return osp.join(self.root, self.name, 'processed')
+            return osp.join(self.root, "planetoid", self.name, 'geom-gcn', 'processed')
+        return osp.join(self.root, "planetoid", self.name, 'processed')
 
     @property
     def raw_file_names(self) -> List[str]:
@@ -479,6 +502,7 @@ class Planetoid(InMemoryDataset):
 
     def process(self) -> None:
         data = read_planetoid_data(self.raw_dir, self.name, self.split)
+        print(data)
 
         if self.split == 'geom-gcn':
             train_masks, val_masks, test_masks = [], [], []

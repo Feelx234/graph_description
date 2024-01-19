@@ -200,6 +200,39 @@ def glob(path: str) -> List[str]:
 
     return paths
 
+from scipy.sparse import coo_array
+import numpy as np
+
+def replace_sparse_matrices(d):
+    d_out = {}
+    for key, value in d.items():
+        if isinstance(value, coo_array):
+            d_out[key + "_sparse_row"] = value.row
+            d_out[key + "_sparse_col"] = value.col
+            d_out[key + "_sparse_data"] = value.data
+            d_out[key + "_sparse_shape"] = np.array(value.shape, dtype=np.int64)
+        else:
+            d_out[key]=value
+    return d_out
+
+def undo_replace_sparse_matrices(d):
+    d_out = {}
+    for key, value in d.items():
+        if key.endswith("_sparse_data"):
+            prefix = key[:-len("_sparse_data")]
+            row  = d[prefix + "_sparse_row"]
+            col  = d[prefix + "_sparse_col"]
+            data = d[prefix + "_sparse_data"]
+            the_shape = d[prefix + "_sparse_shape"]
+            d_out[prefix] = coo_array((data, (row, col)), shape=the_shape)
+        elif   (key.endswith("_sparse_row") or
+                key.endswith("_sparse_col") or
+                key.endswith("_sparse_shape") ):
+            continue
+        else:
+            d_out[key]=value
+    return d_out
+
 
 def replace_none(d):
     d_out = {}
@@ -208,7 +241,7 @@ def replace_none(d):
             d_out[key+"_None"] = 0
         else:
             d_out[key]=value
-    return d_out
+    return replace_sparse_matrices(d_out)
 
 def undo_replace_none(d):
     d_out = {}
@@ -217,10 +250,11 @@ def undo_replace_none(d):
             d_out[key[:-5]] = None
         else:
             d_out[key]=value
-    return d_out
+    return undo_replace_sparse_matrices(d_out)
 
 def torch_save(data: Any, path: str) -> None:
     import numpy as np
+    #print("saving to", path)
     if data is None or data=="None":
         np.savez(path, None_data=data)
         return
@@ -248,6 +282,7 @@ def torch_load(path: str, map_location: Any = None) -> Any:
         else:
             slices = load_result["slices"]
             del data["slices"]
+        #print("loading", path)
         return undo_replace_none(data), slices
     #with fsspec.open(path, 'rb') as f:
     #    return np.load(f, map_location)

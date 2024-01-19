@@ -12,7 +12,7 @@ class SumAggregator:
         self.column_names=column_names
 
     def apply(self, df, network):
-        assert len(df) == network.number_of_nodes(), "network and df don't have the same number of nodes"
+        assert len(df) == network.number_of_nodes(), f"network and df don't have the same number of nodes {df.shape} {network.number_of_nodes()}"
         pred_range, pred_idx = nx_to_range_representation(network)
         out_columns = {}
         for column_name in self.column_names:

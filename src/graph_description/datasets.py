@@ -234,7 +234,10 @@ class TorchDataset:
 
     def get_node_attributes(self, datasets_dir):
         self.ensure_data(datasets_dir)
-        df = pd.DataFrame(self.data.x)
+        if isinstance(self.data.x, coo_array):
+            df = pd.DataFrame.sparse.from_spmatrix(self.data.x)
+        else:
+            df = pd.DataFrame(self.data.x)
         df["labels"] = self.data.y
         return df
 
