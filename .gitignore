@@ -63,3 +63,4 @@ notebooks/english.txt
 snakemake_base
 .snakemake
 tests/test_dummy.py
+pytorch_datasets

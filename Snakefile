@@ -1,7 +1,9 @@
+# type: ignore 
 default_dir = "snakemake_base"
 aggregated_datasets_dir = default_dir+"/aggregated_datasets"
 splits_dir = default_dir+"/splits"
 classifier_dir = default_dir+"/trained_classifiers"
+prediction_dir = default_dir+"/classifier_predictions"
 scorer_dir = default_dir+"/scores"
 experiment_dir = default_dir+"/experiments"
 
@@ -44,6 +46,9 @@ rule run_aggregation0:
         #print(output)
         df.to_pickle(output[0])
 
+
+
+
 rule run_aggregation:
     output : aggregated_datasets_dir+"/{dataset}_{group}_{round,[0-9]}"+pickle_ending
     run:
@@ -70,6 +75,8 @@ rule run_aggregation:
         total_df.to_pickle(output[0])
 
 
+
+
 rule create_split:
     output : splits_dir+"/{dataset}_{group}/{num_train_per_class}_{num_val}_{num_test}_{split_seed}"+npz_ending
     run:
@@ -84,6 +91,10 @@ rule create_split:
             num_test = int(num_test)
         train_mask, val_mask, test_mask = create_random_split(df, int(wildcards.num_train_per_class), int(wildcards.num_val), num_test)
         np.savez(output[0], train_mask=train_mask, val_mask=val_mask, test_mask=test_mask)
+
+
+
+
 xgb_raw = "/xgbclass_{n_estimators}_{max_depth}_{clf_seed}{early_stopping_rounds}"
 xgb_str = xgb_raw+xgb_ending
 rule train_xgbclassifier:
@@ -139,6 +150,98 @@ rule train_xgbclassifier:
             bst.fit(X_train, y_train)
 
         bst.save_model(output[0])
+
+
+
+
+
+#print("WORKFLOW", )
+gnn_ending = ".npy"
+gnn_raw = "/{gnn_kind}_{init_seed}_{train_seed}"
+gnn_str = gnn_raw+gnn_ending
+from pathlib import Path
+rule get_gnn_predictions:
+    output :
+        (prediction_dir+
+        "/{dataset}_{group}"+
+        "/baselines"+
+        "/split_{num_train_per_class}_{num_val}_{num_test}_{split_seed}"+
+        gnn_str)
+    input :
+        splits_dir+"/{dataset}_{group}/{num_train_per_class}_{num_val}_{num_test}_{split_seed}"+npz_ending
+    run :
+        from graph_description.gnn.run import main
+
+        import numpy as np
+        import pandas as pd
+        splits = np.load(input[0])
+        splits = {"train" : splits["train_mask"],
+             "valid" : splits["val_mask"],
+             "test" : splits["test_mask"]}
+
+        from hydra import compose, initialize_config_dir
+        from omegaconf import OmegaConf
+        config_dir = Path(workflow.snakefile).parent/"src"/"graph_description"/"gnn"/"config"
+        print(config_dir)
+        data_root = Path(workflow.snakefile).parent/"pytorch_datasets"
+        with initialize_config_dir(config_dir=str(config_dir), job_name="test_app"):
+            cfg = compose(config_name="main", 
+                          overrides=["cuda=0",
+                                     f"model={wildcards.gnn_kind}",
+                                     f"dataset={wildcards.dataset}",
+                                     f"data_root={data_root}"])
+
+            #print(OmegaConf.to_yaml(cfg))
+            prediction = main(cfg, splits, wildcards.init_seed, wildcards.train_seed)
+            np.save(output[0], prediction, allow_pickle=False)
+        
+# snakemake "./snakemake_base/classifier_predictions/pubmed_planetoid/baselines/split_20_500_rest_1/gat2017_0_0.npy" --cores 1
+
+
+
+
+rule test_gnnclassifier:
+    input :
+        (prediction_dir+
+        "/{dataset}_{group}"+
+        "/baselines"+
+        "/split_{num_train_per_class}_{num_val}_{num_test}_{split_seed}"+
+        gnn_str),
+        splits_dir+"/{dataset}_{group}/{num_train_per_class}_{num_val}_{num_test}_{split_seed}"+npz_ending,
+        aggregated_datasets_dir+"/{dataset}_{group}_0"+pickle_ending
+    output :
+        (scorer_dir+
+        "/{dataset}_{group}"+
+        "/baselines"+
+        "/score_{score_name}"+
+        "/split_{num_train_per_class}_{num_val}_{num_test}_{split_seed}"+
+        gnn_raw+txt_ending),
+    run :
+        import numpy as np
+        import pandas as pd
+        from sklearn.metrics import accuracy_score, f1_score
+        splits = np.load(input[1])
+        test_mask = splits["test_mask"]
+
+        df  = pd.read_pickle(input[2])
+        print("number_of_columns", len(df.columns))
+        test_df = df[test_mask]
+        X_test = test_df.drop("labels", axis=1)
+        y_test = test_df["labels"]
+        scorers = {
+            "accuracy" : accuracy_score,
+            "f1" : partial(f1_score, average="micro")
+        }
+        scorer = scorers[wildcards.score_name]
+
+        y_test_predict = np.load(input[0])[test_mask]
+        score = scorer(y_test, y_test_predict)
+        score = np.array([score])
+        np.savetxt(output[0], score)
+# snakemake "./snakemake_base/scores/citeseer_planetoid/baselines/score_accuracy/split_20_500_rest_1/gat2017_0_0.txt" --cores 1
+
+
+
 
 
 rule test_xgbclassifier:
@@ -237,13 +340,13 @@ def agg_train_per_class_helper(wildcards):
     print("AAAA")
     unpack_wildcards(wildcards, globals())
     #print(globals())
-    print(n_estimators)
+    #print(n_estimators)
     result = [(scorer_dir+
         f"/{wildcards.dataset}_{wildcards.group}"+
-        f"/round_{wildcards.round}"+
+        f"/{wildcards.round}"+
         f"/score_{wildcards.score_name}"+
         f"/split_{num_train_per_class}_{wildcards.num_val}_{wildcards.num_test}_{split_seed}"+
-        eval(effify(xgb_raw), globals(), locals())+txt_ending)
+        wildcards.joker+txt_ending)
         for num_train_per_class, split_seed in product(dyn_num_train_per_class, dyn_split_seed)]
     print(result)
     return result
@@ -257,10 +360,10 @@ rule agg_train_per_class:
         (experiment_dir+
         "/agg_train_per_class"
         "/{dataset}_{group}"+
-        "/round_{round}"+
+        "/{round,baselines|round_[0-9]+}"+
         "/score_{score_name}"+
-        "/split_{dyn_num_train_per_class}_{num_val}_{num_test}_{dyn_split_seed}"+
-        xgb_raw+csv_ending),
+        "/split_{dyn_num_train_per_class,[^_]+}_{num_val,[0-9]+}_{num_test,rest|[0-9]+}_{dyn_split_seed,[^/\\\\]}"+
+        "{joker,.*}"+csv_ending),
 
     run :
         import numpy as np
@@ -282,9 +385,13 @@ rule agg_train_per_class:
         #wildcard_values = tuple(wildcards.values())
         #wildcard_keys = tuple(wildcards.keys())
         def extract_num_train_from_path(s):
-            return int(s.split("split_")[1].split("/xgbclass")[0].split("_")[0])
+            if "/xgbclass" in s:
+                return int(s.split("split_")[1].split("/xgbclass")[0].split("_")[0])
+            return 0
         def extract_split_seed_from_path(s):
-            return int(s.split("split_")[1].split("/xgbclass")[0].split("_")[3])
+            if "/xgbclass" in s:
+                return int(s.split("split_")[1].split("/xgbclass")[0].split("_")[3])
+            return 0
 
         for file_to_load in input:
             val = np.loadtxt(file_to_load)
@@ -301,3 +408,9 @@ rule agg_train_per_class:
 
 # snakemake ".\snakemake_base\experiments\agg_train_per_class\pubmed_planetoid\round_0\score_accuracy\split_1_0_rest_0\xgbclass_10_2_0.csv"
 
+# snakemake ./snakemake_base/experiments/agg_train_per_class/pubmed_planetoid/round_0/score_accuracy/split_20_500_rest_0/xgbclass_10_2_0.csv --cores 1
+
+#  snakemake "./snakemake_base/experiments/agg_train_per_class/pubmed_planetoid/round_0/score_accuracy/split_crange(200)_500_rest_0/xgbclass_10_2_0_5.csv" --cores 16
+
+
+# snakemake "./snakemake_base/experiments/agg_train_per_class/pubmed_planetoid/baselines/score_accuracy/split_crange(200)_500_rest_0/gcn2017_0_0.csv" --cores 16 -f -R

@@ -69,7 +69,7 @@ def read_txt_array(
     return parse_txt_array(src, sep, start, end, dtype, device)
 
 
-def read_planetoid_data(folder: str, prefix: str, split:str):
+def read_planetoid_data(folder: str, prefix: str, split:str, remove_zero_degree_nodes):
     names = ['x', 'tx', 'allx', 'y', 'ty', 'ally', 'graph', 'test.index']
     items = [read_file(folder, prefix, name) for name in names]
     for name, item in zip(names, items):
@@ -83,6 +83,9 @@ def read_planetoid_data(folder: str, prefix: str, split:str):
     test_index = test_index.ravel()
     train_index = np.arange(y.shape[0], dtype=np.int64)
     val_index = np.arange(y.shape[0], y.shape[0] + 500, dtype=np.int64)
+    print("test_index", test_index)
+    sorted_index = test_index.copy()
+    sorted_index.sort()
     #sorted_test_index = test_index.copy()
     #sorted_test_index.sort()
     #sorted_test_index = sorted_test_index.ravel()#[0]
@@ -93,9 +96,9 @@ def read_planetoid_data(folder: str, prefix: str, split:str):
         len_test_indices = int(test_index.max() - test_index.min()) + 1
 
         tx_ext = np.zeros((len_test_indices, tx.shape[1]), dtype=tx.dtype)
-        #tx_ext[sorted_test_index - test_index.min(), :] = tx
+        tx_ext[sorted_index - test_index.min(), :] = tx
         ty_ext = np.zeros((len_test_indices, ty.shape[1]), dtype=ty.dtype)
-        #ty_ext[sorted_test_index - test_index.min(), :] = ty
+        ty_ext[sorted_index - test_index.min(), :] = ty
 
         tx, ty = tx_ext, ty_ext
 
@@ -132,6 +135,7 @@ def read_planetoid_data(folder: str, prefix: str, split:str):
         x = coo_array((np.concatenate(values), (np.concatenate(cols), np.concatenate(rows))), shape=x.shape)
     else:
         x = np.concatenate([allx, tx], axis=0)
+        x[test_index, :] = x[sorted_index, :]
 
         #x[test_index,:] = x[sorted_test_index,:]
         print("nonzero_entries ", (x > 0).sum())
@@ -140,6 +144,7 @@ def read_planetoid_data(folder: str, prefix: str, split:str):
     y = np.argmax(np.concatenate([ally, ty], axis=0),axis=1)#.max(axis=1)#[1]
     #y[test_index] = y[sorted_test_index]
     y = np.array(y, dtype=np.int64)
+    y[test_index] = y[sorted_index]
 
     if split.lower() == "geom-gcn":
         def my_repeat(arr):
@@ -157,20 +162,21 @@ def read_planetoid_data(folder: str, prefix: str, split:str):
         graph_dict=graph,  # type: ignore
         num_nodes=y.shape[0],
     )
-    default_num_nodes = x.shape[0]
-    zero_indices = np.bincount(edge_index.ravel(), minlength=x.shape[0])
-    new_num_nodes = (zero_indices>0).sum()
-    if not np.all(zero_indices>0):
-        print(f"removing {default_num_nodes-new_num_nodes} zero degree nodes")
-        keep_nodes = zero_indices > 0
-        new_node_labels = np.zeros(default_num_nodes, dtype=np.int32)
-        new_node_labels[keep_nodes] = np.arange(new_num_nodes)
-        edge_index = new_node_labels[edge_index.ravel()].reshape(edge_index.shape)
-        x = x[keep_nodes, :]
-        y = y[keep_nodes]
-        train_mask = train_mask[keep_nodes]
-        test_mask = test_mask[keep_nodes]
-        val_mask = val_mask[keep_nodes]
+    if remove_zero_degree_nodes:
+        default_num_nodes = x.shape[0]
+        zero_indices = np.bincount(edge_index.ravel(), minlength=x.shape[0])
+        new_num_nodes = (zero_indices>0).sum()
+        if not np.all(zero_indices>0):
+            print(f"removing {default_num_nodes-new_num_nodes} zero degree nodes")
+            keep_nodes = zero_indices > 0
+            new_node_labels = np.zeros(default_num_nodes, dtype=np.int32)
+            new_node_labels[keep_nodes] = np.arange(new_num_nodes)
+            edge_index = new_node_labels[edge_index.ravel()].reshape(edge_index.shape)
+            x = x[keep_nodes, :]
+            y = y[keep_nodes]
+            train_mask = train_mask[keep_nodes]
+            test_mask = test_mask[keep_nodes]
+            val_mask = val_mask[keep_nodes]
 
     x = coo_array(x)
     data = Data(x, y, edge_index, train_mask, val_mask, test_mask)
@@ -350,6 +356,12 @@ def cp(
             pass
 
 
+def switch_edge_direction(data):
+    tmp = data.edge_index[0,:].copy()
+    data.edge_index[0,:] = data.edge_index[1,:]
+    data.edge_index[1,:] = tmp
+
+
 class Planetoid(InMemoryDataset):
     r"""The citation network datasets :obj:`"Cora"`, :obj:`"CiteSeer"` and
     :obj:`"PubMed"` from the `"Revisiting Semi-Supervised Learning with Graph
@@ -435,16 +447,19 @@ class Planetoid(InMemoryDataset):
         transform: Optional[Callable] = None,
         pre_transform: Optional[Callable] = None,
         force_reload: bool = False,
-        log : bool = True
+        log : bool = True,
+        remove_zero_degree_nodes = False
     ) -> None:
         self.name = name
 
         self.split = split.lower()
         assert self.split in ['public', 'full', 'geom-gcn', 'random']
-
+        self.remove_zero_degree_nodes = remove_zero_degree_nodes
         super().__init__(root, transform, pre_transform,
                          force_reload=force_reload, log=log)
+        
         self.load(self.processed_paths[0])
+        
 
         if split == 'full':
             data = self.get(0)
@@ -501,7 +516,8 @@ class Planetoid(InMemoryDataset):
                 fs.cp(f'{url}_split_0.6_0.2_{i}.npz', self.raw_dir)
 
     def process(self) -> None:
-        data = read_planetoid_data(self.raw_dir, self.name, self.split)
+        data = read_planetoid_data(self.raw_dir, self.name, self.split, self.remove_zero_degree_nodes)
+        switch_edge_direction(data)
         print(data)
 
         if self.split == 'geom-gcn':
@@ -535,7 +551,7 @@ def parse_npz(f: Dict[str, Any], to_undirected: bool = True) -> Data:
                       f['attr_shape']).todense()
     x = np.array(x, dtype=np.float64)
     x[x > 0] = 1
-
+    x = coo_array(x)
     adj = sp.csr_matrix((f['adj_data'], f['adj_indices'], f['adj_indptr']),
                         f['adj_shape']).tocoo()
     row = np.array(adj.row, dtype=np.int64)
@@ -783,6 +799,8 @@ class CitationFull(InMemoryDataset):
     def process(self) -> None:
         data = read_npz(self.raw_paths[0], to_undirected=self.to_undirected)
         data = data if self.pre_transform is None else self.pre_transform(data)
+        #print("AWSASDASDASDASDASDASD")
+        switch_edge_direction(data)
         self.save([data], self.processed_paths[0])
 
     def __repr__(self) -> str:
