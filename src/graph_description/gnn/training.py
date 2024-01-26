@@ -95,6 +95,7 @@ def train(
     optimizer.step()
     return loss.item()
 
+@torch.no_grad()
 def accuracy(pred, target):
     r"""Computes the accuracy of predictions.
 
@@ -142,10 +143,10 @@ def get_dataset(
     part_val: float = 0.15,
     part_test: float = 0.8,
 ) -> torch_geometric.data.Dataset:
-    """Return a benchmarking dataset. If the dataset does not have data splits, add them. 
-    
-    To be reproducible, this requires seeding of torch random number generation outside 
-    this function! Splits are recreated every access (as transform), so they need to be 
+    """Return a benchmarking dataset. If the dataset does not have data splits, add them.
+
+    To be reproducible, this requires seeding of torch random number generation outside
+    this function! Splits are recreated every access (as transform), so they need to be
     saved before the seed is changed.
 
     Args:
@@ -153,18 +154,18 @@ def get_dataset(
         root (str): Root directory, where data is stored.
         transforms (List[Callable], optional): torch_geometric transforms. Defaults to empty list.
         pre_transforms (List[Callable], optional): torch_geometric pre_transforms. Defaults to empty list.
-        public_split (bool, optional): Whether to use the public split, if available. 
+        public_split (bool, optional): Whether to use the public split, if available.
         Otherwise, creates split according to rest of arguments. Defaults to True.
         split_type (str, optional): One of "num", "proportional", "degree". If "proportional", created
-        splits will have nodes for every class proportional to their prevalence in the whole 
-        dataset. If "num", a fixed number of nodes per class is used (num_train_per_class). 
-        If "degree", nodes with highest degrees are used for training, otherwise like "num". 
+        splits will have nodes for every class proportional to their prevalence in the whole
+        dataset. If "num", a fixed number of nodes per class is used (num_train_per_class).
+        If "degree", nodes with highest degrees are used for training, otherwise like "num".
         Defaults to "num".
-        num_train_per_class (int, optional): Number of nodes used for training. Only 
+        num_train_per_class (int, optional): Number of nodes used for training. Only
         applies to datasets without pre-specified data splits. Defaults to 20.
-        part_val (float, optional): Fraction of dataset used for validation. Only used 
+        part_val (float, optional): Fraction of dataset used for validation. Only used
         with proportional split. Defaults to 0.15.
-        part_test (float, optional): Fraction of dataset used for testing. Only used with 
+        part_test (float, optional): Fraction of dataset used for testing. Only used with
         proportional split. Defaults to 0.8.
 
     Raises:
@@ -393,10 +394,10 @@ def get_dataset(
     part_val: float = 0.15,
     part_test: float = 0.8,
 ) -> torch_geometric.data.Dataset:
-    """Return a benchmarking dataset. If the dataset does not have data splits, add them. 
-    
-    To be reproducible, this requires seeding of torch random number generation outside 
-    this function! Splits are recreated every access (as transform), so they need to be 
+    """Return a benchmarking dataset. If the dataset does not have data splits, add them.
+
+    To be reproducible, this requires seeding of torch random number generation outside
+    this function! Splits are recreated every access (as transform), so they need to be
     saved before the seed is changed.
 
     Args:
@@ -404,18 +405,18 @@ def get_dataset(
         root (str): Root directory, where data is stored.
         transforms (List[Callable], optional): torch_geometric transforms. Defaults to empty list.
         pre_transforms (List[Callable], optional): torch_geometric pre_transforms. Defaults to empty list.
-        public_split (bool, optional): Whether to use the public split, if available. 
+        public_split (bool, optional): Whether to use the public split, if available.
         Otherwise, creates split according to rest of arguments. Defaults to True.
         split_type (str, optional): One of "num", "proportional", "degree". If "proportional", created
-        splits will have nodes for every class proportional to their prevalence in the whole 
-        dataset. If "num", a fixed number of nodes per class is used (num_train_per_class). 
-        If "degree", nodes with highest degrees are used for training, otherwise like "num". 
+        splits will have nodes for every class proportional to their prevalence in the whole
+        dataset. If "num", a fixed number of nodes per class is used (num_train_per_class).
+        If "degree", nodes with highest degrees are used for training, otherwise like "num".
         Defaults to "num".
-        num_train_per_class (int, optional): Number of nodes used for training. Only 
+        num_train_per_class (int, optional): Number of nodes used for training. Only
         applies to datasets without pre-specified data splits. Defaults to 20.
-        part_val (float, optional): Fraction of dataset used for validation. Only used 
+        part_val (float, optional): Fraction of dataset used for validation. Only used
         with proportional split. Defaults to 0.15.
-        part_test (float, optional): Fraction of dataset used for testing. Only used with 
+        part_test (float, optional): Fraction of dataset used for testing. Only used with
         proportional split. Defaults to 0.8.
 
     Raises:
@@ -529,14 +530,14 @@ class EarlyStopping:
         Args:
             patience (int): How long to wait after last time validation loss improved.
                             Default: 7
-            verbose (bool): If True, prints a message for each validation loss improvement. 
+            verbose (bool): If True, prints a message for each validation loss improvement.
                             Default: False
             delta (float): Minimum change in the monitored quantity to qualify as an improvement.
                             Default: 0
             path (str): Path for the checkpoint to be saved to.
                             Default: 'checkpoint.pt'
             trace_func (function): trace print function.
-                            Default: print            
+                            Default: print
         """
         self.patience = patience
         self.verbose = verbose
@@ -601,7 +602,7 @@ class DegreeNodeSplit(T.RandomNodeSplit):
     def _split(
         self, store: torch_geometric.data.storage.NodeStorage
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Modification of torch_geometric.transforms.RandomNodeSplit to split based on 
+        """Modification of torch_geometric.transforms.RandomNodeSplit to split based on
         highest degree nodes.
         """
         num_nodes = store.num_nodes

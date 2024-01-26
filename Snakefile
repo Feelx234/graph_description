@@ -1,4 +1,4 @@
-# type: ignore 
+# type: ignore
 default_dir = "snakemake_base"
 aggregated_datasets_dir = default_dir+"/aggregated_datasets"
 splits_dir = default_dir+"/splits"
@@ -50,7 +50,10 @@ rule run_aggregation0:
 
 
 rule run_aggregation:
-    output : aggregated_datasets_dir+"/{dataset}_{group}_{round,[0-9]}"+pickle_ending
+    output :
+        aggregated_datasets_dir+"/{dataset}_{group}_{round,[0-9]}"+pickle_ending,
+        aggregated_datasets_dir+"/{dataset}_{group}_{round,[0-9]}_dense"+pickle_ending,
+        aggregated_datasets_dir+"/{dataset}_{group}_{round,[0-9]}_labels.npy"
     run:
         import pandas as pd
         import numpy as np
@@ -73,6 +76,16 @@ rule run_aggregation:
         total_df = pd.concat(dfs, axis=1)
         total_df.columns= list(map(fix_column_name, total_df.columns))
         total_df.to_pickle(output[0])
+        print(total_df.shape)
+
+        from sklearn.utils.validation import check_array
+        tmp = check_array(total_df)
+        print(tmp.shape)
+        df_dense = pd.DataFrame(tmp, columns = total_df.columns)
+        df_dense.to_pickle(output[1])
+
+        arr = total_df["labels"].to_numpy()
+        np.save(output[2], arr, allow_pickle=False)
 
 
 
@@ -92,10 +105,16 @@ rule create_split:
         train_mask, val_mask, test_mask = create_random_split(df, int(wildcards.num_train_per_class), int(wildcards.num_val), num_test)
         np.savez(output[0], train_mask=train_mask, val_mask=val_mask, test_mask=test_mask)
 
+from sklearn.metrics import accuracy_score
+def my_accuracy(y_true, y_pred):
+    if len(y_pred.shape)>1:
+        true_labels = np.argmax(y_pred, axis=1)
+    else:
+        true_labels=y_pred
 
+    return 1-accuracy_score(y_true, true_labels)
 
-
-xgb_raw = "/xgbclass_{n_estimators}_{max_depth}_{clf_seed}{early_stopping_rounds}"
+xgb_raw = "/xgbclass_{n_estimators,[^_]+}_{max_depth,[^_]+}_{clf_seed,[^_]+}{early_stopping_rounds,.*}"
 xgb_str = xgb_raw+xgb_ending
 rule train_xgbclassifier:
     output :
@@ -112,6 +131,7 @@ rule train_xgbclassifier:
     run :
         import numpy as np
         import pandas as pd
+
         splits = np.load(input[0])
         train_mask = splits["train_mask"]
         val_mask = splits["val_mask"]
@@ -124,32 +144,134 @@ rule train_xgbclassifier:
         y_train = train_df["labels"]
 
         from xgboost import XGBClassifier
+        #print({key:wildcards[key] for key in wildcards.keys()})
         if len(wildcards.early_stopping_rounds)>0:
             if val_mask.sum()!=0:
+                print("TRAIN CLASSIFIER: USING EVAL SET")
+
+                from xgboost.callback import TrainingCallback
+                class ChildWeightScheduler(TrainingCallback):
+                    def __init__(self, gamma, timespan=10, min_size=1):
+                        self.gamma=int(gamma)
+                        self.timespan=timespan
+                        self.min_size=min_size
+                    def after_iteration(self, model, epoch, evals_log):
+                        #print(model.attributes())
+                        if epoch>0 and epoch % self.timespan == 0:
+                            self.gamma=max(self.min_size, self.gamma-1)
+                        model.set_param("min_child_weight", self.gamma)
+                        #print(dir(model))
+                        #model.gamma = model.gamma*0.95
+                        #print(evals_log)
+
+
                 val_df = df[val_mask]
                 X_val = val_df.drop("labels", axis=1)
                 y_val = val_df["labels"]
+                train_per_class = int(wildcards.num_train_per_class)
+                if train_per_class <= 10:
+                    sample = 1
+                elif train_per_class>=100:
+                    sample=0.3
+                else:
+                    sample=0.5
 
-                bst = XGBClassifier(n_estimators=int(wildcards.n_estimators),
-                max_depth=int(wildcards.max_depth),
-                learning_rate=1,
-                objective='binary:logistic',
-                random_state=wildcards.clf_seed,
-                n_jobs=threads,
-                early_stopping_rounds=int(wildcards.early_stopping_rounds[1:]))
-                bst.fit(X_train, y_train, eval_set=[(X_train, y_train), (X_val, y_val)], verbose=False)
+                child_scheduler = ChildWeightScheduler(max(min(sample*train_per_class,10),1),10,1)
+                params = dict(
+                    n_estimators=int(wildcards.n_estimators),
+                    max_depth=child_scheduler.gamma,
+                    learning_rate=0.03,
+                    objective='multi:softmax',
+                    random_state=wildcards.clf_seed,
+                    eval_metric=my_accuracy,
+                    disable_default_eval_metric= 1,
+                    n_jobs=1,
+                    early_stopping_rounds=int(wildcards.early_stopping_rounds[1:]),
+                    min_child_weight=5,
+                #    tree_method="approx",
+                #    gamma=1,
+                    subsample=sample,
+                    colsample_bytree = sample,
+                    #max_delta_step=0.2
+                #    reg_lambda = 50,
+                #    reg_alpha = 1.5,
+                    colsample_bylevel = sample,
+                    colsample_bynode = sample,
+                    callbacks = (child_scheduler,)
+                )
+
+                bst = XGBClassifier(**params)
+                result = bst.fit(X_train,
+                        y_train,
+                        eval_set=[(X_train, y_train), (X_val, y_val)],
+                        verbose=False)
+                #print(dir(bst))
+                #print("EVAL RESULTS", bst.evals_result())
+                print("Best_iteration", bst.best_iteration, "best_score", bst.best_score)
+
             else:
                 raise ValueError("Early stopping provided but validation set is empty!")
         else:
+            print("TRAIN CLASSIFIER: NORMAL TRAINING")
             bst = XGBClassifier(n_estimators=int(wildcards.n_estimators),
                 max_depth=int(wildcards.max_depth),
                 learning_rate=1,
-                objective='binary:logistic',
+                objective='multi:softmax',
                 random_state=wildcards.clf_seed,
                 n_jobs=threads)
             bst.fit(X_train, y_train)
 
         bst.save_model(output[0])
+
+
+
+
+
+
+
+imodels_ending = ".npy"
+imodels_raw = "/rulefit_{max_rules}"
+imodels_str = imodels_raw+imodels_ending
+from pathlib import Path
+rule get_rulefit_predictions:
+    output :
+        (prediction_dir+
+        "/{dataset}_{group}"+
+        "/round_{round}"+
+        "/split_{num_train_per_class}_{num_val}_{num_test}_{split_seed}"+
+        imodels_raw+".npy")
+    input :
+        splits_dir+"/{dataset}_{group}/{num_train_per_class}_{num_val}_{num_test}_{split_seed}"+npz_ending,
+        aggregated_datasets_dir+"/{dataset}_{group}_{round}_dense"+pickle_ending
+    run :
+        from graph_description.gnn.run import main
+        from imodels import RuleFitClassifier
+        from sklearn.multiclass import OneVsRestClassifier
+
+        import numpy as np
+        import pandas as pd
+        splits = np.load(input[0])
+        train_mask = splits["train_mask"]
+        val_mask = splits["val_mask"]
+
+        df  = pd.read_pickle(input[1])
+        train_df = df[train_mask]
+        #print("number_of_columns", len(df.columns))
+        X_train = train_df.drop("labels", axis=1)
+
+        y_train = train_df["labels"]
+
+        clf = OneVsRestClassifier(RuleFitClassifier(max_rules=int(wildcards.max_rules), cv=False))
+        #try:
+        clf.fit(X_train, y_train)
+        prediction = clf.predict(df.drop("labels", axis=1))
+        np.save(output[0], prediction, allow_pickle=False)
+        #except RuleException:
+        #    np.save(output[0], np.zeros(len(df),dtype=int), allow_pickle=False)
+
+
+
+
 
 
 
@@ -185,7 +307,7 @@ rule get_gnn_predictions:
         print(config_dir)
         data_root = Path(workflow.snakefile).parent/"pytorch_datasets"
         with initialize_config_dir(config_dir=str(config_dir), job_name="test_app"):
-            cfg = compose(config_name="main", 
+            cfg = compose(config_name="main",
                           overrides=["cuda=0",
                                      f"model={wildcards.gnn_kind}",
                                      f"dataset={wildcards.dataset}",
@@ -194,52 +316,56 @@ rule get_gnn_predictions:
             #print(OmegaConf.to_yaml(cfg))
             prediction = main(cfg, splits, wildcards.init_seed, wildcards.train_seed)
             np.save(output[0], prediction, allow_pickle=False)
-        
+
 # snakemake "./snakemake_base/classifier_predictions/pubmed_planetoid/baselines/split_20_500_rest_1/gat2017_0_0.npy" --cores 1
 
 
-
+def process_score_name(score_name):
+    from sklearn.metrics import accuracy_score, f1_score
+    if "_" in score_name:
+        score_name, set_name = score_name.split("_")
+        assert set_name in ("test", "val", "train")
+    else:
+        set_name="test"
+    scorers = {
+            "accuracy" : accuracy_score,
+            "f1" : partial(f1_score, average="micro")
+    }
+    return scorers[score_name], set_name
 
 rule test_gnnclassifier:
     input :
         (prediction_dir+
         "/{dataset}_{group}"+
-        "/baselines"+
+        "/{joker2}"+
         "/split_{num_train_per_class}_{num_val}_{num_test}_{split_seed}"+
-        gnn_str),
+        "/{joker}.npy"),
         splits_dir+"/{dataset}_{group}/{num_train_per_class}_{num_val}_{num_test}_{split_seed}"+npz_ending,
         aggregated_datasets_dir+"/{dataset}_{group}_0"+pickle_ending
     output :
         (scorer_dir+
         "/{dataset}_{group}"+
-        "/baselines"+
+        "/{joker2}"+
         "/score_{score_name}"+
         "/split_{num_train_per_class}_{num_val}_{num_test}_{split_seed}"+
-        gnn_raw+txt_ending),
+        "/{joker}"+txt_ending),
     run :
         import numpy as np
         import pandas as pd
-        from sklearn.metrics import accuracy_score, f1_score
+
+        scorer, split_name = process_score_name(wildcards.score_name)
         splits = np.load(input[1])
-        test_mask = splits["test_mask"]
+        mask = splits[split_name+"_mask"]
 
         df  = pd.read_pickle(input[2])
-        print("number_of_columns", len(df.columns))
-        test_df = df[test_mask]
-        X_test = test_df.drop("labels", axis=1)
+        test_df = df[mask]
         y_test = test_df["labels"]
-        scorers = {
-            "accuracy" : accuracy_score,
-            "f1" : partial(f1_score, average="micro")
-        }
-        scorer = scorers[wildcards.score_name]
 
-        y_test_predict = np.load(input[0])[test_mask]
+        y_test_predict = np.load(input[0])[mask]
         score = scorer(y_test, y_test_predict)
         score = np.array([score])
         np.savetxt(output[0], score)
 # snakemake "./snakemake_base/scores/citeseer_planetoid/baselines/score_accuracy/split_20_500_rest_1/gat2017_0_0.txt" --cores 1
-
 
 
 
@@ -265,18 +391,14 @@ rule test_xgbclassifier:
         import pandas as pd
         from sklearn.metrics import accuracy_score, f1_score
         splits = np.load(input[1])
-        test_mask = splits["test_mask"]
+        scorer, split_name = process_score_name(wildcards.score_name)
+        test_mask = splits[split_name+"_mask"]
 
         df  = pd.read_pickle(input[2])
-        print("number_of_columns", len(df.columns))
+        #print("number_of_columns", len(df.columns))
         test_df = df[test_mask]
         X_test = test_df.drop("labels", axis=1)
         y_test = test_df["labels"]
-        scorers = {
-            "accuracy" : accuracy_score,
-            "f1" : partial(f1_score, average="micro")
-        }
-        scorer = scorers[wildcards.score_name]
 
         from xgboost import XGBClassifier
         classifier = XGBClassifier()
@@ -303,7 +425,7 @@ def c_range(the_stop, start=1):
     out = []
     for step, stop in vals:
         stop = min(stop, the_stop)
-        if start >=stop:
+        if start >stop:
             break
         out.extend(list(range(start, stop, step)))
         start=stop
@@ -362,7 +484,7 @@ rule agg_train_per_class:
         "/{dataset}_{group}"+
         "/{round,baselines|round_[0-9]+}"+
         "/score_{score_name}"+
-        "/split_{dyn_num_train_per_class,[^_]+}_{num_val,[0-9]+}_{num_test,rest|[0-9]+}_{dyn_split_seed,[^/\\\\]}"+
+        "/split_{dyn_num_train_per_class,[^_]+}_{num_val,[0-9]+}_{num_test,rest|[0-9]+}_{dyn_split_seed,[^/\\\\]+}"+
         "{joker,.*}"+csv_ending),
 
     run :

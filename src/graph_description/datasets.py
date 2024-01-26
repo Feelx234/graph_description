@@ -221,7 +221,10 @@ class TorchDataset:
     def get_networkx(self, datasets_dir):
         self.ensure_data(datasets_dir)
         edge_index = self.get_edges(datasets_dir)
-        return nx.from_edgelist(edge_index, create_using=nx.DiGraph)
+        G = nx.DiGraph()
+        G.add_nodes_from(range(len(self.data.y)))
+        G.add_edges_from(edge_index)
+        return G
 
 
     def get_edges(self, datasets_dir):
