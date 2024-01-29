@@ -40,13 +40,14 @@ def optional_hydrafunc(fn):
         return fn
 
 @optional_hydrafunc
-def main(cfg: DictConfig, splits=None, init_seed=0, train_seed=0):
+def main(cfg: DictConfig, splits=None, init_seed=0, train_seed=0, silent=False):
 
     pl.seed_everything(cfg.datasplit_seed)
     # torch.use_deterministic_algorithms(
     #     True
     # )  # https://docs.nvidia.com/cuda/cublas/index.html#cublasApi_reproducibility
-    print(OmegaConf.to_yaml(cfg))
+    if not silent:
+        print(OmegaConf.to_yaml(cfg))
 
 
     dataset = get_dataset(
@@ -69,7 +70,7 @@ def main(cfg: DictConfig, splits=None, init_seed=0, train_seed=0):
     # print(dataset.y, dataset.y.is_sparse, dataset.y.shape)
     # print(dataset.edge_index, dataset.edge_index.is_sparse)
     # print(dataset.train_mask, dataset.train_mask.size())
-    
+
     pl.seed_everything(cfg.seed)
     #for key, mask in splits.items():
     #    torch.save(mask, os.path.join(os.getcwd(), f"{key}_mask.pt"))

@@ -584,7 +584,8 @@ class EarlyStopping:
     # ...
 
     def __exit__(self, exc_type, exc_value, traceback):
-        os.unlink(self.path)
+        if self.path.exists():
+            os.unlink(self.path)
 
 
 class DegreeNodeSplit(T.RandomNodeSplit):

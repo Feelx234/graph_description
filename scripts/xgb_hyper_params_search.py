@@ -59,7 +59,7 @@ objective = partial(xgb_objective, num_classes=num_classes, dtrain=dtrain, dval=
 
 
 storage = optuna.storages.JournalStorage(
-    optuna.storages.JournalFileStorage(str(prefix/"hyper_praram_journal.log")),
+    optuna.storages.JournalFileStorage(str(prefix/"hyper_param_journal.log")),
 )
 
 study = optuna.create_study(
@@ -69,4 +69,4 @@ study = optuna.create_study(
     direction='minimize'
 )
 
-study.optimize(objective, n_trials=1000)
+study.optimize(objective, n_trials=100)

@@ -81,10 +81,12 @@ class ExponentialScheduler(TrainingCallback):
 from xgboost import XGBClassifier
 # 1. Define an objective function to be maximized.
 def xgb_objective(trial, num_classes, dtrain, dval):
+    init_lr = trial.suggest_float("init_lr", 0.001, 1)
+    stop_lr = trial.suggest_float("init_lr", 0.001, init_lr)
     lr_scheduler = ExponentialScheduler("learning_rate",
-                                        start_val=trial.suggest_float("init_lr", 0.01, 1),
-                                        factor=trial.suggest_categorical("lr_factor",[0.99, 1]),
-                                        stop_val = 0.01,
+                                        start_val=init_lr,
+                                        factor=trial.suggest_categorical("lr_factor",[0.95, 0.99, 1]),
+                                        stop_val = stop_lr,
                                         timespan=1
                                        )
     start_subsample = trial.suggest_float("start_subsample", 0.1,1)
@@ -94,7 +96,7 @@ def xgb_objective(trial, num_classes, dtrain, dval):
                                         step=0.1,
                                         stop_val = stop_subsample,
                                         timespan=num_classes*trial.suggest_int("timespan_subsample",1,3),
-                                        offset = num_classes*trial.suggest_int("timespan_offset",1,3)
+                                        offset = num_classes*trial.suggest_int("timespan_offset_subsample",1,3)
                                        )
 
     start_weight = trial.suggest_int("start_weight", 1,10)
@@ -104,7 +106,8 @@ def xgb_objective(trial, num_classes, dtrain, dval):
                                         start_val=start_weight,
                                         step=step_weight,
                                         stop_val = stop_weight,
-                                        timespan=num_classes*trial.suggest_int("timespan_weight",1,3)
+                                        timespan=num_classes*trial.suggest_int("timespan_weight",1,3),
+                                        offset = num_classes*trial.suggest_int("timespan_offset_weight",1,3)
                                        )
     #tree_size_scheduler = LinearScheduler("max_depth",1,1,10, timespan=10)
     colsample =  trial.suggest_float("colsample", 0.1,1)
