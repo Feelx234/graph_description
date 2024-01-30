@@ -4,6 +4,7 @@ aggregated_datasets_dir = default_dir+"/aggregated_datasets"
 splits_dir = default_dir+"/splits"
 classifier_dir = default_dir+"/trained_classifiers"
 prediction_dir = default_dir+"/classifier_predictions"
+params_dir = default_dir+"/optimal_params"
 scorer_dir = default_dir+"/scores"
 experiment_dir = default_dir+"/experiments"
 
@@ -225,7 +226,187 @@ rule train_xgbclassifier:
 
 
 
+def load_xgb(splits_path, df_path):
+    import numpy as np
+    import pandas as pd
+    splits = np.load(splits_path)
+    train_mask = splits["train_mask"]
+    val_mask = splits["val_mask"]
 
+    df  = pd.read_pickle(df_path)
+    train_df = df[train_mask]
+    X_train = train_df.drop("labels", axis=1)
+    y_train = train_df["labels"]
+
+    val_df = df[val_mask]
+    X_val = val_df.drop("labels", axis=1)
+    y_val = val_df["labels"]
+
+    num_classes = len(np.bincount(y_train))
+
+    import xgboost as xgb
+
+    dtrain = xgb.DMatrix(X_train, label=y_train, missing=np.NaN)
+    dval = xgb.DMatrix(X_val, label=y_val, missing=np.NaN)
+    return dtrain, dval, num_classes
+
+def run_and_save_study(objective, study_name, direction, n_trials, out_path):
+
+    import optuna
+    storage_path = Path(out_path).parent/"journal.log"
+    storage = optuna.storages.JournalStorage(
+        optuna.storages.JournalFileStorage(str(storage_path)),
+    )
+
+    study = optuna.create_study(
+        storage=storage,  # Specify the storage URL here.
+        study_name=study_name,
+        load_if_exists=True,
+        direction=direction
+    )
+
+    n_trials = int(n_trials)
+    if len(study.get_trials()) < n_trials:
+        study.optimize(objective, n_trials=n_trials-len(study.get_trials()))
+
+    import json
+    with open(out_path, 'w') as file:
+        file.write(json.dumps(study.best_params, indent=4))
+
+
+
+
+rule xgb_optimize_optuna:
+    output:
+        (params_dir+
+        "/{dataset}_{group}"+
+        "/round_{round}"+
+        "/split_{num_train_per_class}_{num_val}_{num_test}_{split_seed}/params_xgb_{n_trials}.json")
+    input:
+        splits_dir+"/{dataset}_{group}/{num_train_per_class}_{num_val}_{num_test}_{split_seed}"+npz_ending,
+        aggregated_datasets_dir+"/{dataset}_{group}_{round}"+pickle_ending
+    run:
+        dtrain, dval, num_classes = load_xgb(input[0], input[1])
+
+
+        from graph_description.training_utils import xgb_objective
+        from functools import partial
+
+        objective = partial(xgb_objective,
+                            num_classes=num_classes,
+                            dtrain=dtrain,
+                            dval=dval)
+
+        run_and_save_study(
+            objective=objective,
+            study_name = f"{wildcards.dataset}-{wildcards.round}-{wildcards.num_train_per_class}-xgb",
+            direction="minimize",
+            n_trials=wildcards.n_trials,
+            out_path=output[0]
+        )
+# snakemake ./snakemake_base/optimal_params/citeseer_planetoid/round_0/split_20_500_rest_0/params_xgb_10.json --cores 1
+
+
+
+rule train_xgb_opticlassifier:
+    output :
+        (prediction_dir+
+        "/{dataset}_{group}"+
+        "/round_{round}"+
+        "/split_{num_train_per_class}_{num_val}_{num_test}_{split_seed}"+
+        "/xgbclass_opti({opti_split_seed},{param_search_n_trials}).npy")
+    input :
+        splits_dir+"/{dataset}_{group}/{num_train_per_class}_{num_val}_{num_test}_{split_seed}"+npz_ending,
+        aggregated_datasets_dir+"/{dataset}_{group}_{round}"+pickle_ending,
+        (params_dir+
+            "/{dataset}_{group}"+
+            "/round_{round}"+
+            "/split_{num_train_per_class}_{num_val}_{num_test}_{opti_split_seed}"+
+            "/params_xgb_{param_search_n_trials}.json")
+    run :
+        import pandas as pd
+        dtrain, dval, num_classes = load_xgb(input[0], input[1])
+        df  = pd.read_pickle(input[1])
+
+        from graph_description.training_utils import xgb_get_config, TrialWrapperDict
+        from xgboost import XGBClassifier
+
+        trial = TrialWrapperDict(input[2])
+        config=xgb_get_config(trial, num_classes)
+        bst = XGBClassifier(**config)
+
+
+        result = bst.fit(dtrain.get_data(),dtrain.get_label(),
+            eval_set=[(dval.get_data(),dval.get_label())],
+            verbose=False)
+
+        prediction = bst.predict(df.drop("labels", axis=1))
+        np.save(output[0], prediction, allow_pickle=False)
+# snakemake "./snakemake_base/classifier_predictions/citeseer_planetoid/round_0/split_20_500_rest_0/xgbclass_opti(0,100).npy" --cores 1
+
+
+
+
+rule gnn_optimize_optuna:
+    output:
+        (params_dir+
+        "/{dataset}_{group}"+
+        "/baselines"+
+        "/split_{num_train_per_class}_{num_val}_{num_test}_{split_seed}/params_{gnn_kind,gcn2017|gat2017}_{n_trials}.json")
+    input:
+        splits_dir+"/{dataset}_{group}/{num_train_per_class}_{num_val}_{num_test}_{split_seed}"+npz_ending,
+        aggregated_datasets_dir+"/{dataset}_{group}_0_labels.npy"
+    run:
+
+        splits = np.load(input[0])
+        splits = {"train" : splits["train_mask"],
+            "valid" : splits["val_mask"],
+            "test" : splits["test_mask"]}
+        train_mask = splits["train"]
+        val_mask = splits["valid"]
+
+        labels  = np.load(input[1])
+        y_val = labels[val_mask]
+
+
+        from graph_description.training_utils import gnn_objective
+        from functools import partial
+        objective = partial(gnn_objective,
+                            gnn_kind=wildcards.gnn_kind,
+                            dataset=wildcards.dataset,
+                            splits=splits, y_val=y_val)
+
+        run_and_save_study(
+            objective=objective,
+            study_name = f"{wildcards.dataset}-X-{wildcards.num_train_per_class}-{wildcards.gnn_kind}",
+            direction="maximize",
+            n_trials=wildcards.n_trials,
+            out_path=output[0]
+        )
+
+
+        # import optuna
+        # storage_path = Path(output[0]).parent/"journal.log"
+        # storage = optuna.storages.JournalStorage(
+        #     optuna.storages.JournalFileStorage(str(storage_path)),
+        # )
+
+        # study = optuna.create_study(
+        #     storage=storage,  # Specify the storage URL here.
+        #     study_name=f"{wildcards.dataset}-X-{wildcards.num_train_per_class}-{wildcards.gnn_kind}",
+        #     load_if_exists=True,
+        #     direction='maximize'
+        # )
+
+        # n_trials = int(wildcards.n_trials)
+        # if len(study.get_trials()) < n_trials:
+        #     study.optimize(objective, n_trials=n_trials-len(study.get_trials()))
+
+        # import json
+        # with open(output[0], 'w') as file:
+        #     file.write(json.dumps(study.best_params, indent=4))
+
+# snakemake ./snakemake_base/optimal_params/citeseer_planetoid/round_0/split_20_500_rest_0/params_gat2017_10.json --cores 1
 
 
 
@@ -275,11 +456,30 @@ rule get_rulefit_predictions:
 
 
 
+def get_gnn_predictions_input_files(wildcards):
+    print(wildcards)
+    if len(wildcards.optiparams)==0:
+        return splits_dir+f"/{wildcards.dataset}_{wildcards.group}/{wildcards.num_train_per_class}_{wildcards.num_val}_{wildcards.num_test}_{wildcards.split_seed}"+npz_ending
+    else:
+        optiparams = wildcards.optiparams
+        assert optiparams.startswith("_opti(")
+        param_search_seed, param_search_n_trials = optiparams[len("_opti("):-1].split(",")
+        print(param_search_seed, param_search_n_trials)
+        output= [
+            splits_dir+f"/{wildcards.dataset}_{wildcards.group}/{wildcards.num_train_per_class}_{wildcards.num_val}_{wildcards.num_test}_{wildcards.split_seed}"+npz_ending,
+             (params_dir+
+                f"/{wildcards.dataset}_{wildcards.group}"+
+                f"/baselines"+
+                f"/split_{wildcards.num_train_per_class}_{wildcards.num_val}_{wildcards.num_test}_{param_search_seed}/params_{wildcards.gnn_kind}_{param_search_n_trials}.json")
+        ]
+        print(output)
+        return output
+
 
 
 #print("WORKFLOW", )
 gnn_ending = ".npy"
-gnn_raw = "/{gnn_kind}_{init_seed}_{train_seed}"
+gnn_raw = "/{gnn_kind,[^_]+}_{init_seed,[^_]+}_{train_seed,[^_]+}{optiparams,.*}"
 gnn_str = gnn_raw+gnn_ending
 from pathlib import Path
 rule get_gnn_predictions:
@@ -290,8 +490,9 @@ rule get_gnn_predictions:
         "/split_{num_train_per_class}_{num_val}_{num_test}_{split_seed}"+
         gnn_str)
     input :
-        splits_dir+"/{dataset}_{group}/{num_train_per_class}_{num_val}_{num_test}_{split_seed}"+npz_ending
+        get_gnn_predictions_input_files
     run :
+        print("----------------------------------"  )
         from graph_description.gnn.run import main
 
         import numpy as np
@@ -301,24 +502,33 @@ rule get_gnn_predictions:
              "valid" : splits["val_mask"],
              "test" : splits["test_mask"]}
 
-        from hydra import compose, initialize_config_dir
-        from omegaconf import OmegaConf
-        config_dir = Path(workflow.snakefile).parent/"src"/"graph_description"/"gnn"/"config"
-        print(config_dir)
-        data_root = Path(workflow.snakefile).parent/"pytorch_datasets"
-        with initialize_config_dir(config_dir=str(config_dir), job_name="test_app"):
-            cfg = compose(config_name="main",
-                          overrides=["cuda=0",
-                                     f"model={wildcards.gnn_kind}",
-                                     f"dataset={wildcards.dataset}",
-                                     f"data_root={data_root}"])
+        if len(wildcards.optiparams)==0:
 
-            #print(OmegaConf.to_yaml(cfg))
-            prediction = main(cfg, splits, wildcards.init_seed, wildcards.train_seed)
-            np.save(output[0], prediction, allow_pickle=False)
+            from hydra import compose, initialize_config_dir
+            from omegaconf import OmegaConf
+            config_dir = Path(workflow.snakefile).parent/"src"/"graph_description"/"gnn"/"config"
+            print(config_dir)
+            data_root = Path(workflow.snakefile).parent/"pytorch_datasets"
+            with initialize_config_dir(config_dir=str(config_dir), job_name="test_app"):
+                cfg = compose(config_name="main",
+                            overrides=["cuda=0",
+                                        f"model={wildcards.gnn_kind}",
+                                        f"dataset={wildcards.dataset}",
+                                        f"data_root={data_root}"])
+
+                #print(OmegaConf.to_yaml(cfg))
+                prediction = main(cfg, splits, wildcards.init_seed, wildcards.train_seed)
+
+        else:
+            from graph_description.training_utils import gnn_get_config, TrialWrapperDict
+            from graph_description.gnn.run import main
+            trial = TrialWrapperDict(input[1])
+            cfg = gnn_get_config(trial, wildcards.gnn_kind, wildcards.dataset)
+            prediction = main(cfg, splits, init_seed=0, train_seed=0, silent=True)
+        np.save(output[0], prediction, allow_pickle=False)
 
 # snakemake "./snakemake_base/classifier_predictions/pubmed_planetoid/baselines/split_20_500_rest_1/gat2017_0_0.npy" --cores 1
-
+# snakemake "./snakemake_base/classifier_predictions/pubmed_planetoid/baselines/split_20_500_rest_1/gat2017_0_0_opti(0 10).npy" --cores 1 -f
 
 def process_score_name(score_name):
     from sklearn.metrics import accuracy_score, f1_score
@@ -409,9 +619,9 @@ rule test_xgbclassifier:
         np.savetxt(output[0], score)
         #print(list(wildcards.keys()))
 
-def c_range(the_stop, start=1):
+def c_range(the_stop, start=None):
     vals = [(1,6),
-            (2,20),
+            (2,10),
             (5,50),
             (10,100),
             (25,300),
@@ -422,6 +632,12 @@ def c_range(the_stop, start=1):
             (1000,10000),]
     if the_stop > 10_000:
         raise NotImplementedError("value to big")
+    if start is None:
+        start=1
+    else:
+        tmp=the_stop
+        the_stop=start
+        start=tmp
     out = []
     for step, stop in vals:
         stop = min(stop, the_stop)
@@ -536,3 +752,6 @@ rule agg_train_per_class:
 
 
 # snakemake "./snakemake_base/experiments/agg_train_per_class/pubmed_planetoid/baselines/score_accuracy/split_crange(200)_500_rest_0/gcn2017_0_0.csv" --cores 16 -f -R
+
+
+# snakemake "./snakemake_base/experiments/agg_train_per_class/citeseer_planetoid/round_0/score_accuracy/split_crange(5,201)_500_rest_range(20)/xgbclass_opti(0,100).csv" --cores 16

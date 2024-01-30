@@ -65,3 +65,5 @@ snakemake_base
 tests/test_dummy.py
 pytorch_datasets
 checkpoints
+
+.panoptes.db
