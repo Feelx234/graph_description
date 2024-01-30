@@ -738,6 +738,29 @@ rule agg_train_per_class:
             records.append(wildcard_values+(train_per_class, split_seed, file_to_load,val))
         df = pd.DataFrame.from_records(records, columns=wildcard_keys+("train_per_class", "split_seed", "path", "value"))
         df.to_csv(output[0], index=False)
+
+
+
+rule all_xgb:
+    input :
+        expand((experiment_dir+
+        "/agg_train_per_class"
+        "/{dataset}_{group}"+
+        "/{round}"+
+        "/score_{{score_name}}"+
+        "/split_{{dyn_num_train_per_class}}_{{num_val}}_{{num_test}}_{{dyn_split_seed}}"+
+        "{{joker}}"+csv_ending), dataset=["citeseer", "pubmed", "cora"], group=["planetoid"], round=["round_0","round_1","round_2"]),
+    output :
+        (experiment_dir+
+        "/agg_train_per_class"
+        "/all"+
+        "/score_{score_name}"+
+        "/split_{dyn_num_train_per_class,[^_]+}_{num_val,[0-9]+}_{num_test,rest|[0-9]+}_{dyn_split_seed,[^/\\\\]+}"+
+        "{joker,.*}"+csv_ending),
+    shell: "touch {output}"
+
+
+
 # snakemake .\snakemake_base\experiments\agg_train_per_class\citeseer_None\round_1\score_accuracy\split_auto_0_rest_10\xgbclass_10_2_0.csv --cores 1 -f
 
 # snakemake .\snakemake_base\experiments\agg_train_per_class\citeseer_None\round_1\score_accuracy\split_auto_0_rest_10\xgbclass_10_2_0.csv --cores 1 -f
