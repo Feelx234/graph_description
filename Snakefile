@@ -14,23 +14,19 @@ xgb_ending=".ubj"#".json"
 txt_ending=".txt"
 csv_ending=".csv"
 
+from functools import partial
+
 def fix_column_name(name):
     return str(name).replace("<", " smaller ").replace("[", "{").replace("]",  "}")
 
 import numpy as np
 
-num_train_per_class_arr = [1,3,5,10,25,50,100,150,200]
 
 wildcard_constraints:
     split_seed="\d+",
     num_train_per_class="auto|\d+|max_\d+",
     early_stopping_rounds=".*|_\d+"
 
-
-rule test_range:
-    output : aggregated_datasets_dir+"/{test}.txt"
-    run:
-        print(list(eval(wildcards.test)))
 
 rule run_aggregation0:
     output : aggregated_datasets_dir+"/{dataset}_{group}_-1"+pickle_ending
@@ -117,7 +113,7 @@ def my_accuracy(y_true, y_pred):
 
 xgb_raw = "/xgbclass_{n_estimators,[^_]+}_{max_depth,[^_]+}_{clf_seed,[^_]+}{early_stopping_rounds,.*}"
 xgb_str = xgb_raw+xgb_ending
-rule train_xgbclassifier:
+rule xgb_train_classifier:
     output :
         (classifier_dir+
         "/{dataset}_{group}"+
@@ -288,9 +284,7 @@ rule xgb_optimize_optuna:
     run:
         dtrain, dval, num_classes = load_xgb(input[0], input[1])
 
-
         from graph_description.training_utils import xgb_objective
-        from functools import partial
 
         objective = partial(xgb_objective,
                             num_classes=num_classes,
@@ -308,7 +302,7 @@ rule xgb_optimize_optuna:
 
 
 
-rule train_xgb_opticlassifier:
+rule xgb_train_predict_opticlassifier:
     output :
         (prediction_dir+
         "/{dataset}_{group}"+
@@ -370,7 +364,7 @@ rule gnn_optimize_optuna:
 
 
         from graph_description.training_utils import gnn_objective
-        from functools import partial
+
         objective = partial(gnn_objective,
                             gnn_kind=wildcards.gnn_kind,
                             dataset=wildcards.dataset,
@@ -384,28 +378,6 @@ rule gnn_optimize_optuna:
             out_path=output[0]
         )
 
-
-        # import optuna
-        # storage_path = Path(output[0]).parent/"journal.log"
-        # storage = optuna.storages.JournalStorage(
-        #     optuna.storages.JournalFileStorage(str(storage_path)),
-        # )
-
-        # study = optuna.create_study(
-        #     storage=storage,  # Specify the storage URL here.
-        #     study_name=f"{wildcards.dataset}-X-{wildcards.num_train_per_class}-{wildcards.gnn_kind}",
-        #     load_if_exists=True,
-        #     direction='maximize'
-        # )
-
-        # n_trials = int(wildcards.n_trials)
-        # if len(study.get_trials()) < n_trials:
-        #     study.optimize(objective, n_trials=n_trials-len(study.get_trials()))
-
-        # import json
-        # with open(output[0], 'w') as file:
-        #     file.write(json.dumps(study.best_params, indent=4))
-
 # snakemake ./snakemake_base/optimal_params/citeseer_planetoid/round_0/split_20_500_rest_0/params_gat2017_10.json --cores 1
 
 
@@ -414,7 +386,7 @@ imodels_ending = ".npy"
 imodels_raw = "/rulefit_{max_rules}"
 imodels_str = imodels_raw+imodels_ending
 from pathlib import Path
-rule get_rulefit_predictions:
+rule rulefit_train_predict:
     output :
         (prediction_dir+
         "/{dataset}_{group}"+
@@ -429,26 +401,115 @@ rule get_rulefit_predictions:
         from imodels import RuleFitClassifier
         from sklearn.multiclass import OneVsRestClassifier
 
-        import numpy as np
-        import pandas as pd
-        splits = np.load(input[0])
-        train_mask = splits["train_mask"]
-        val_mask = splits["val_mask"]
-
-        df  = pd.read_pickle(input[1])
-        train_df = df[train_mask]
-        #print("number_of_columns", len(df.columns))
-        X_train = train_df.drop("labels", axis=1)
-
-        y_train = train_df["labels"]
+        (X_train, y_train, df)=load_dataset_splitted(input[0], input[1], return_val=False, return_full=True)
 
         clf = OneVsRestClassifier(RuleFitClassifier(max_rules=int(wildcards.max_rules), cv=False))
-        #try:
+
         clf.fit(X_train, y_train)
         prediction = clf.predict(df.drop("labels", axis=1))
         np.save(output[0], prediction, allow_pickle=False)
-        #except RuleException:
-        #    np.save(output[0], np.zeros(len(df),dtype=int), allow_pickle=False)
+
+
+
+
+
+
+def load_dataset_splitted(path_splits, path_df, return_train=True, return_val=True, return_test=False, return_full=False):
+    import numpy as np
+    splits = np.load(path_splits)
+    import pandas as pd
+    df  = pd.read_pickle(path_df)
+
+    def get_by_split(split_name):
+        mask = splits[split_name]
+        mask_df = df[mask]
+        X = mask_df.drop("labels", axis=1)
+        y = mask_df["labels"]
+        return X, y
+
+    out = tuple()
+    if return_train:
+        out += get_by_split("train_mask")
+    if return_val:
+        out += get_by_split("val_mask")
+    if return_test:
+        out += get_by_split("test_mask")
+    if return_full:
+        out +=(df,)
+    return out
+
+
+    
+
+
+rule rulefit_optimize_optuna:
+    output:
+        (params_dir+
+        "/{dataset}_{group}"+
+        "/round_{round}"+
+        "/split_{num_train_per_class}_{num_val}_{num_test}_{split_seed}/params_rulefit{max_rules}_{n_trials}.json")
+    input:
+        splits_dir+"/{dataset}_{group}/{num_train_per_class}_{num_val}_{num_test}_{split_seed}"+npz_ending,
+        aggregated_datasets_dir+"/{dataset}_{group}_{round}_dense"+pickle_ending
+    run:
+        (X_train, y_train, X_val, y_val)=load_dataset_splitted(input[0], input[1])
+
+        from graph_description.training_utils import rulefit_objective
+
+        objective = partial(rulefit_objective,
+                            max_rules=wildcards.max_rules,
+                            X_train=X_train,
+                            y_train=y_train,
+                            X_val=X_val,
+                            y_val=y_val)
+
+        run_and_save_study(
+            objective=objective,
+            study_name = f"{wildcards.dataset}-{wildcards.round}-{wildcards.num_train_per_class}-rulefit{wildcards.max_rules}",
+            direction="maximize",
+            n_trials=wildcards.n_trials,
+            out_path=output[0]
+        )
+# snakemake ./snakemake_base/optimal_params/citeseer_planetoid/round_0/split_20_500_rest_0/params_xgb_10.json --cores 1
+
+
+
+rule rulefit_train_predict_opticlassifier:
+    output :
+        (prediction_dir+
+        "/{dataset}_{group}"+
+        "/round_{round}"+
+        "/split_{num_train_per_class}_{num_val}_{num_test}_{split_seed}"+
+        "/rulefit{max_rules,[0-9]+}_opti({opti_split_seed},{param_search_n_trials}).npy")
+    input :
+        splits_dir+"/{dataset}_{group}/{num_train_per_class}_{num_val}_{num_test}_{split_seed}"+npz_ending,
+        aggregated_datasets_dir+"/{dataset}_{group}_{round}_dense"+pickle_ending,
+        (params_dir+
+            "/{dataset}_{group}"+
+            "/round_{round}"+
+            "/split_{num_train_per_class}_{num_val}_{num_test}_{opti_split_seed}"+
+            "/params_rulefit{max_rules}_{param_search_n_trials}.json")
+    run :
+        (X_train, y_train, df)=load_dataset_splitted(input[0], input[1], return_val=False, return_full=True)
+
+        from graph_description.training_utils import rulefit_train_classifier, TrialWrapperDict
+
+        trial = TrialWrapperDict(input[2])
+        clf = rulefit_train_classifier(trial, int(wildcards.max_rules), X_train, y_train)
+
+        prediction = clf.predict(df.drop("labels", axis=1))
+        np.save(output[0], prediction, allow_pickle=False)
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -651,11 +712,6 @@ crange=c_range
 
 from itertools import product
 
-def effify(non_f_str: str):
-    f_string =  f'f"""{non_f_str}"""'
-    #print(f_string)
-    return f_string
-
 
 def unpack_wildcards(wildcards, _locals):
     for key in wildcards.keys():
@@ -675,7 +731,7 @@ def agg_train_per_class_helper(wildcards):
     group= wildcards.group
     #G, df = read_attributed_graph(wildcards.dataset, kind="edges", group=wildcards.group)
     #max_num_train_for_network = 200#np.bincount(df["labels"].to_numpy()).min()
-    print("AAAA")
+    #print("AAAA")
     unpack_wildcards(wildcards, globals())
     #print(globals())
     #print(n_estimators)
