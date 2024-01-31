@@ -41,7 +41,8 @@ def optional_hydrafunc(fn):
 
 @optional_hydrafunc
 def main(cfg: DictConfig, splits=None, init_seed=0, train_seed=0, silent=False):
-
+    import logging
+    logging.getLogger("lightning_fabric.utilities.seed").setLevel(logging.WARNING)
     pl.seed_everything(cfg.datasplit_seed)
     # torch.use_deterministic_algorithms(
     #     True
