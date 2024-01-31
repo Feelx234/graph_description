@@ -177,7 +177,7 @@ def gnn_get_config(trial, gnn_kind, dataset):
     from hydra import compose, initialize_config_dir
     config_dir = root_folder/"src"/"graph_description"/"gnn"/"config"
     data_root = root_folder/"pytorch_datasets"
-    with initialize_config_dir(config_dir=str(config_dir), job_name="test_app"):
+    with initialize_config_dir(config_dir=str(config_dir), job_name="test_app", version_base=None):
         cfg = compose(config_name="main",
                         overrides=["cuda=0",
                                     f"model={gnn_kind}",
@@ -200,3 +200,36 @@ def gnn_objective(trial, gnn_kind, dataset, splits, y_val):
     prediction = main(cfg, splits, init_seed=0, train_seed=0, silent=True)
     val_prediction = prediction[splits["valid"]]
     return accuracy_score(val_prediction, y_val)
+
+
+def rulefit_get_config(trial, max_rules):
+    params = dict(
+        max_rules=int(max_rules),
+        cv=False,
+        random_state=0,
+        tree_size = trial.suggest_int('tree_size',2,100),
+        memory_par = trial.suggest_float('memory_par',1e-3,100,log=True), # learning rate
+        lin_trim_quantile = trial.suggest_float('lin_trim_quantile',0,1),
+        exp_rand_tree_size = trial.suggest_categorical('exp_rand_tree_size',[False, True]),
+#        alpha = trial.suggest_float('alpha',1e-4, 10, log=True),
+    )
+    return params
+
+
+def rulefit_train_classifier(trial, max_rules, X_train, y_train):
+    from imodels import RuleFitClassifier
+    from sklearn.multiclass import OneVsRestClassifier
+    import warnings
+    warnings.filterwarnings("ignore", message="invalid value encountered in scalar subtract")
+    warnings.filterwarnings("ignore", message="overflow encountered in reduce")
+
+    params = rulefit_get_config(trial, max_rules)
+    clf = OneVsRestClassifier(RuleFitClassifier(**params))
+    clf.fit(X_train, y_train)
+    return clf
+
+
+def rulefit_objective(trial, max_rules, X_train, y_train, X_val, y_val):
+    clf = rulefit_train_classifier(trial, max_rules, X_train, y_train)
+    prediction = clf.predict(X_val)
+    return accuracy_score(prediction, y_val)
