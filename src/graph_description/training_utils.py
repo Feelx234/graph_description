@@ -1,4 +1,4 @@
-
+from threadpoolctl import threadpool_limits
 import numpy as np
 from sklearn.metrics import accuracy_score
 def my_accuracy(y_true, y_pred):
@@ -224,8 +224,10 @@ def rulefit_train_classifier(trial, max_rules, X_train, y_train):
     warnings.filterwarnings("ignore", message="overflow encountered in reduce")
 
     params = rulefit_get_config(trial, max_rules)
-    clf = OneVsRestClassifier(RuleFitClassifier(**params))
-    clf.fit(X_train, y_train)
+    with threadpool_limits(limits=1, user_api='blas'):
+        with threadpool_limits(limits=1, user_api='openmp'):
+            clf = OneVsRestClassifier(RuleFitClassifier(**params))
+            clf.fit(X_train, y_train)
     return clf
 
 
@@ -233,3 +235,63 @@ def rulefit_objective(trial, max_rules, X_train, y_train, X_val, y_val):
     clf = rulefit_train_classifier(trial, max_rules, X_train, y_train)
     prediction = clf.predict(X_val)
     return accuracy_score(prediction, y_val)
+
+
+
+
+
+
+
+from graph_description.custom_sgdclassifier import SGDClassifierFixedSplit
+
+
+def sgdclassifier_get_config(trial, sklearn_val_mask):
+    loss = trial.suggest_categorical("loss", ["hinge", "log_loss", "modified_huber", "squared_hinge",
+                                                "perceptron", "squared_error", "huber", "epsilon_insensitive",
+                                                "squared_epsilon_insensitive"])
+    if loss in ("huber", "epsilon_insensitive","squared_epsilon_insensitive"):
+        epsilon=trial.suggest_float("epsilon", 0.01, 10, log=True)
+    else:
+        epsilon=0.1
+
+    penalty = trial.suggest_categorical("penalty", ["l2", "l1", "elasticnet"])
+    if penalty == "elasticnet":
+        l1_ratio = trial.suggest_float("l1_ratio", 0, 1)
+    else:
+        l1_ratio=0.15
+    params = dict(
+        loss=loss,
+        penalty=penalty,
+        alpha=trial.suggest_float("alpha", 1e-6, 10, log=True),
+        l1_ratio=l1_ratio,
+        tol = trial.suggest_float("tol", 1e-6, 0.1, log=True),
+        epsilon=epsilon,
+        random_state=0,
+        n_jobs=1,
+
+        early_stopping=True,
+        validation_mask=sklearn_val_mask,
+        n_iter_no_change=trial.suggest_int('n_iter_no_change',1,100),
+        verbose=False,
+    )
+    return params
+
+
+def sgdclassifier_train_classifier(trial, sklearn_val_mask, X_train_val, y_train_val):
+    params = sgdclassifier_get_config(trial, sklearn_val_mask)
+
+    # we need to assign threadpool limits, otherwise the calculation will be run in parallel
+    # parallelism is not desired here but handled by snakemake instead
+    with threadpool_limits(limits=1, user_api='blas'):
+        with threadpool_limits(limits=1, user_api='openmp'):
+            clf = SGDClassifierFixedSplit(**params)
+            clf.fit(X_train_val, y_train_val)
+    return clf
+
+
+def sgdclassifier_objective(trial, sklearn_val_mask, X_train_val, y_train_val, X_val, y_val):
+    clf = sgdclassifier_train_classifier(trial, sklearn_val_mask, X_train_val, y_train_val)
+    prediction = clf.predict(X_val)
+    score = accuracy_score(prediction, y_val)
+    #print("final_score", score)
+    return score

@@ -475,6 +475,16 @@ def get_dataset(
             )
         else:
             dataset = Planetoid(root=root, name="CiteSeer", split="public")
+    elif name.lower() == "cora":
+        if transforms:
+            dataset = Planetoid(
+                root=root,
+                name="Cora",
+                split="public",
+                transform=T.Compose(transforms),
+            )
+        else:
+            dataset = Planetoid(root=root, name="Cora", split="public")
     elif name.lower() == "pubmed":
         if transforms:
             dataset = Planetoid(

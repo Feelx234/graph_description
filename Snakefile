@@ -93,7 +93,7 @@ rule create_split:
         import numpy as npxgb_ending
         from graph_description.datasets import read_attributed_graph, create_random_split
         G, df = read_attributed_graph(wildcards.dataset, kind="edges", group=wildcards.group)
-        print(np.max(G), print(df.shape))
+        #print(np.max(G), print(df.shape))
         np.random.seed(int(wildcards.split_seed))
         if wildcards.num_test == "rest":
             num_test = "rest"
@@ -262,8 +262,9 @@ def run_and_save_study(objective, study_name, direction, n_trials, out_path):
     )
 
     n_trials = int(n_trials)
-    if len(study.get_trials()) < n_trials:
-        study.optimize(objective, n_trials=n_trials-len(study.get_trials()))
+    num_remaining_trials = n_trials-len(study.get_trials())
+    if  num_remaining_trials > 0:
+        study.optimize(objective, n_trials=num_remaining_trials)
 
     import json
     with open(out_path, 'w') as file:
@@ -439,7 +440,7 @@ def load_dataset_splitted(path_splits, path_df, return_train=True, return_val=Tr
     return out
 
 
-    
+
 
 
 rule rulefit_optimize_optuna:
@@ -501,6 +502,72 @@ rule rulefit_train_predict_opticlassifier:
         np.save(output[0], prediction, allow_pickle=False)
 
 
+def create_joined_train_val_set_for_sgdclassifier(X_train, y_train, X_val, y_val):
+    import pandas as pd
+    X_train_val = pd.concat((X_train, X_val), axis=0)
+    y_train_val  = pd.concat((y_train, y_val), axis=0)
+    sklearn_val_mask = np.hstack( (np.zeros(len(y_train),dtype=bool),  np.ones(len(y_val),dtype=bool)) )
+    return X_train_val, y_train_val, sklearn_val_mask
+
+rule sgdclassifier_optimize_optuna:
+    output:
+        (params_dir+
+        "/{dataset}_{group}"+
+        "/round_{round}"+
+        "/split_{num_train_per_class}_{num_val}_{num_test}_{split_seed}/params_sgdclassifier_{n_trials}.json")
+    input:
+        splits_dir+"/{dataset}_{group}/{num_train_per_class}_{num_val}_{num_test}_{split_seed}"+npz_ending,
+        aggregated_datasets_dir+"/{dataset}_{group}_{round}_dense"+pickle_ending
+    run:
+        (X_train, y_train, X_val, y_val)=load_dataset_splitted(input[0], input[1])
+        X_train_val, y_train_val, sklearn_val_mask = create_joined_train_val_set_for_sgdclassifier(X_train, y_train, X_val, y_val)
+
+        from graph_description.training_utils import sgdclassifier_objective
+
+        objective = partial(sgdclassifier_objective,
+                            sklearn_val_mask=sklearn_val_mask,
+                            X_train_val=X_train_val,
+                            y_train_val=y_train_val,
+                            X_val=X_val,
+                            y_val=y_val)
+
+        run_and_save_study(
+            objective=objective,
+            study_name = f"{wildcards.dataset}-{wildcards.round}-{wildcards.num_train_per_class}-sgdclassifier",
+            direction="maximize",
+            n_trials=wildcards.n_trials,
+            out_path=output[0]
+        )
+# snakemake "./snakemake_base/classifier_predictions/pubmed_planetoid/round_1/split_50_500_rest_0/sgdclassifier_opti(0, 220).npy" --cores=1
+
+
+
+rule sgdclassifier_train_predict_opticlassifier:
+    output :
+        (prediction_dir+
+        "/{dataset}_{group}"+
+        "/round_{round}"+
+        "/split_{num_train_per_class}_{num_val}_{num_test}_{split_seed}"+
+        "/sgdclassifier_opti({opti_split_seed},{param_search_n_trials}).npy")
+    input :
+        splits_dir+"/{dataset}_{group}/{num_train_per_class}_{num_val}_{num_test}_{split_seed}"+npz_ending,
+        aggregated_datasets_dir+"/{dataset}_{group}_{round}_dense"+pickle_ending,
+        (params_dir+
+            "/{dataset}_{group}"+
+            "/round_{round}"+
+            "/split_{num_train_per_class}_{num_val}_{num_test}_{opti_split_seed}"+
+            "/params_sgdclassifier_{param_search_n_trials}.json")
+    run :
+        (X_train, y_train, X_val, y_val, df)=load_dataset_splitted(input[0], input[1], return_val=True, return_full=True)
+        X_train_val, y_train_val, sklearn_val_mask = create_joined_train_val_set_for_sgdclassifier(X_train, y_train, X_val, y_val)
+
+        from graph_description.training_utils import sgdclassifier_train_classifier, TrialWrapperDict
+
+        trial = TrialWrapperDict(input[2])
+        clf = sgdclassifier_train_classifier(trial, sklearn_val_mask, X_train_val, y_train_val)
+
+        prediction = clf.predict(df.drop("labels", axis=1))
+        np.save(output[0], prediction, allow_pickle=False)
 
 
 
@@ -518,14 +585,14 @@ rule rulefit_train_predict_opticlassifier:
 
 
 def get_gnn_predictions_input_files(wildcards):
-    print(wildcards)
+    #print(wildcards)
     if len(wildcards.optiparams)==0:
         return splits_dir+f"/{wildcards.dataset}_{wildcards.group}/{wildcards.num_train_per_class}_{wildcards.num_val}_{wildcards.num_test}_{wildcards.split_seed}"+npz_ending
     else:
         optiparams = wildcards.optiparams
         assert optiparams.startswith("_opti(")
         param_search_seed, param_search_n_trials = optiparams[len("_opti("):-1].split(",")
-        print(param_search_seed, param_search_n_trials)
+        #print(param_search_seed, param_search_n_trials)
         output= [
             splits_dir+f"/{wildcards.dataset}_{wildcards.group}/{wildcards.num_train_per_class}_{wildcards.num_val}_{wildcards.num_test}_{wildcards.split_seed}"+npz_ending,
              (params_dir+
@@ -533,7 +600,7 @@ def get_gnn_predictions_input_files(wildcards):
                 f"/baselines"+
                 f"/split_{wildcards.num_train_per_class}_{wildcards.num_val}_{wildcards.num_test}_{param_search_seed}/params_{wildcards.gnn_kind}_{param_search_n_trials}.json")
         ]
-        print(output)
+        #print(output)
         return output
 
 
@@ -805,15 +872,58 @@ rule all_xgb:
         "/{round}"+
         "/score_{{score_name}}"+
         "/split_{{dyn_num_train_per_class}}_{{num_val}}_{{num_test}}_{{dyn_split_seed}}"+
-        "{{joker}}"+csv_ending), dataset=["citeseer", "pubmed", "cora"], group=["planetoid"], round=["round_0","round_1","round_2"]),
+        "/{{joker}}"+csv_ending), dataset=["citeseer", "pubmed", "cora"], group=["planetoid"], round=["round_0","round_1","round_2"]),
     output :
         (experiment_dir+
         "/agg_train_per_class"
         "/all"+
         "/score_{score_name}"+
         "/split_{dyn_num_train_per_class,[^_]+}_{num_val,[0-9]+}_{num_test,rest|[0-9]+}_{dyn_split_seed,[^/\\\\]+}"+
-        "{joker,.*}"+csv_ending),
-    shell: "touch {output}"
+        "/{joker,[^g].*}"+csv_ending),
+    shell: 'touch "{output}"'
+#  snakemake "./snakemake_base/experiments/agg_train_per_class/all/score_accuracy/split_crange(5,201)_500_rest_range(20)/xgbclass_opti(0,100).csv" --cores 32 --wms-monitor "http://127.0.0.1:5000" --rerun-incomplete --retries 3
+#  snakemake "./snakemake_base/experiments/agg_train_per_class/all/score_accuracy/split_crange(5,201)_500_rest_range(20)/rulefit10_opti(0,100).csv" --cores 32 --wms-monitor "http://127.0.0.1:5000" --rerun-incomplete --retries 3
+
+
+rule all_one_gnn:
+    input :
+        expand((experiment_dir+
+        "/agg_train_per_class"
+        "/{dataset}_{group}"+
+        "/baselines"+
+        "/score_{{score_name}}"+
+        "/split_{{dyn_num_train_per_class}}_{{num_val}}_{{num_test}}_{{dyn_split_seed}}"+
+        "/{{joker}}"+csv_ending), dataset=["citeseer", "pubmed", "cora"], group=["planetoid"]),
+    output :
+        (experiment_dir+
+        "/agg_train_per_class"
+        "/all"+
+        "/score_{score_name}"+
+        "/split_{dyn_num_train_per_class,[^_]+}_{num_val,[0-9]+}_{num_test,rest|[0-9]+}_{dyn_split_seed,[^/\\\\]+}"+
+        "/{joker,(gat|gcn).*}"+csv_ending),
+    shell: 'touch "{output}"'
+
+rule all_both_gnn:
+    input :
+        expand((experiment_dir+
+        "/agg_train_per_class"
+        "/all"+
+        "/score_{{score_name}}"+
+        "/split_{{dyn_num_train_per_class}}_{{num_val}}_{{num_test}}_{{dyn_split_seed}}"+
+        "/{gnn_kind}{{joker}}"+csv_ending), dataset=["citeseer", "pubmed", "cora"], group=["planetoid"], gnn_kind=["gat2017", "gcn2017"]),
+    output :
+        (experiment_dir+
+        "/agg_train_per_class"
+        "/all"+
+        "/score_{score_name}"+
+        "/split_{dyn_num_train_per_class,[^_]+}_{num_val,[0-9]+}_{num_test,rest|[0-9]+}_{dyn_split_seed,[^/\\\\]+}"+
+        "/gnns{joker,.*}"+csv_ending),
+    shell: 'touch "{output}"'
+#  snakemake "./snakemake_base/experiments/agg_train_per_class/all/score_accuracy/split_crange(5,201)_500_rest_range(20)/gat2017_0_0_opti(0,100).csv" --cores 4 --wms-monitor "http://127.0.0.1:5000" --rerun-incomplete --retries 3
+
+
+
+
 
 
 
@@ -834,3 +944,4 @@ rule all_xgb:
 
 
 # snakemake "./snakemake_base/experiments/agg_train_per_class/citeseer_planetoid/round_0/score_accuracy/split_crange(5,201)_500_rest_range(20)/xgbclass_opti(0,100).csv" --cores 16
+
