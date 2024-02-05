@@ -14,7 +14,7 @@ import torch_geometric.transforms as T
 import torch_geometric.utils
 # from ogb.nodeproppred import Evaluator, PygNodePropPredDataset
 from omegaconf import DictConfig
-from torch_geometric.datasets import Amazon, Coauthor, Planetoid, WikiCS
+from torch_geometric.datasets import Amazon, Coauthor, Planetoid, WikiCS, CitationFull
 
 import graph_description.gnn.models as model_utils
 #import src.training.utils as train_utils
@@ -132,139 +132,7 @@ def eval(
     return results
 
 
-def get_dataset(
-    name: str,
-    root: str,
-    transforms: List[Callable] = [],
-    pre_transforms: List[Callable] = [],
-    public_split: bool = True,
-    split_type: str = "num",
-    num_train_per_class: int = 20,
-    part_val: float = 0.15,
-    part_test: float = 0.8,
-) -> torch_geometric.data.Dataset:
-    """Return a benchmarking dataset. If the dataset does not have data splits, add them.
 
-    To be reproducible, this requires seeding of torch random number generation outside
-    this function! Splits are recreated every access (as transform), so they need to be
-    saved before the seed is changed.
-
-    Args:
-        name (str): Name of dataset. Casing is irrelevant.
-        root (str): Root directory, where data is stored.
-        transforms (List[Callable], optional): torch_geometric transforms. Defaults to empty list.
-        pre_transforms (List[Callable], optional): torch_geometric pre_transforms. Defaults to empty list.
-        public_split (bool, optional): Whether to use the public split, if available.
-        Otherwise, creates split according to rest of arguments. Defaults to True.
-        split_type (str, optional): One of "num", "proportional", "degree". If "proportional", created
-        splits will have nodes for every class proportional to their prevalence in the whole
-        dataset. If "num", a fixed number of nodes per class is used (num_train_per_class).
-        If "degree", nodes with highest degrees are used for training, otherwise like "num".
-        Defaults to "num".
-        num_train_per_class (int, optional): Number of nodes used for training. Only
-        applies to datasets without pre-specified data splits. Defaults to 20.
-        part_val (float, optional): Fraction of dataset used for validation. Only used
-        with proportional split. Defaults to 0.15.
-        part_test (float, optional): Fraction of dataset used for testing. Only used with
-        proportional split. Defaults to 0.8.
-
-    Raises:
-        ValueError: if unknown dataset name is given.
-
-    Returns:
-        torch_geometric.data.Dataset: a dataset with train-val-test split.
-    """
-    if split_type == "proportional":
-        split = T.RandomNodeSplit(
-            split="train_rest", num_splits=1, num_test=part_test, num_val=part_val,
-        )
-    elif split_type == "degree":
-        split = DegreeNodeSplit(
-            split="test_rest",
-            num_splits=1,
-            num_train_per_class=num_train_per_class,
-            num_val=500,
-        )
-    elif split_type == "num":
-        split = T.RandomNodeSplit(
-            split="test_rest",
-            num_splits=1,
-            num_train_per_class=num_train_per_class,
-            num_val=500,
-        )
-    else:
-        raise ValueError(f"Unknown split type: {split_type}")
-
-    no_split_transforms = transforms.copy()
-    if not public_split:
-        transforms.append(split)
-
-    # Now differentiate between different datasets
-    if name.lower() == "wikics":
-        if transforms:
-            dataset = WikiCS(
-                os.path.join(root, "wikics"), transform=T.Compose(transforms)
-            )
-        else:
-            dataset = WikiCS(os.path.join(root, "wikics"))
-    elif name.lower() == "arxiv":
-        if transforms:
-            dataset = PygNodePropPredDataset(
-                "ogbn-arxiv", root, transform=T.Compose(transforms)
-            )
-        else:
-            dataset = PygNodePropPredDataset("ogbn-arxiv", root)
-    elif name.lower() == "citeseer":
-        if transforms:
-            dataset = Planetoid(
-                root=root,
-                name="CiteSeer",
-                split="public",
-                transform=T.Compose(transforms),
-            )
-        else:
-            dataset = Planetoid(root=root, name="CiteSeer", split="public")
-    elif name.lower() == "pubmed":
-        if transforms:
-            dataset = Planetoid(
-                root=root,
-                name="Pubmed",
-                split="public",
-                transform=T.Compose(transforms),
-            )
-        else:
-            dataset = Planetoid(root=root, name="Pubmed", split="public")
-    else:
-        # dataset is from Coauthor or Amazon -> no predefined train-val-test split
-        if transforms:
-            transform = T.Compose([*no_split_transforms, split,])
-        else:
-            transform = T.Compose([split])
-
-        if pre_transforms:
-            pre_transform = T.Compose(pre_transforms)
-        else:
-            pre_transform = None
-
-        if name.lower() == "cs":
-            dataset = Coauthor(
-                root, name="CS", transform=transform, pre_transform=pre_transform
-            )
-        elif name.lower() == "physics":
-            dataset = Coauthor(
-                root, name="Physics", transform=transform, pre_transform=pre_transform
-            )
-        elif name.lower() == "photo":
-            dataset = Amazon(
-                root, name="Photo", transform=transform, pre_transform=pre_transform
-            )
-        elif name.lower() == "computers":
-            dataset = Amazon(
-                root, name="Computers", transform=transform, pre_transform=pre_transform
-            )
-        else:
-            raise ValueError(f"Unknown dataset: {name}")
-    return dataset
 
 
 def get_idx_split(dataset: torch_geometric.data.Dataset) -> Dict[str, torch.Tensor]:
@@ -385,6 +253,7 @@ def train_node_classifier(
 
 def get_dataset(
     name: str,
+    group : str,
     root: str,
     transforms: List[Callable] = [],
     pre_transforms: List[Callable] = [],
@@ -466,33 +335,109 @@ def get_dataset(
         else:
             dataset = PygNodePropPredDataset("ogbn-arxiv", root)
     elif name.lower() == "citeseer":
-        if transforms:
-            dataset = Planetoid(
-                root=root,
-                name="CiteSeer",
-                split="public",
-                transform=T.Compose(transforms),
-            )
+        if group=="planetoid":
+            if transforms:
+                dataset = Planetoid(
+                    root=root,
+                    name="CiteSeer",
+                    split="public",
+                    transform=T.Compose(transforms),
+                )
+            else:
+                dataset = Planetoid(root=root, name="CiteSeer", split="public")
+        elif group=="citationfull":
+            if transforms:
+                transform = T.Compose([*no_split_transforms, split,])
+            else:
+                transform = T.Compose([split])
+            if transforms:
+                dataset = CitationFull(
+                    root=root,
+                    name="CiteSeer",
+                    transform=T.Compose(transforms),
+                )
+            else:
+                dataset = CitationFull(root=root, name="CiteSeer")
         else:
-            dataset = Planetoid(root=root, name="CiteSeer", split="public")
+            raise ValueError(f"Invalid dataset/group {name} {group}")
     elif name.lower() == "cora":
+        if group=="planetoid":
+            if transforms:
+                dataset = Planetoid(
+                    root=root,
+                    name="Cora",
+                    split="public",
+                    transform=T.Compose(transforms),
+                )
+            else:
+                dataset = Planetoid(root=root, name="Cora", split="public")
+        elif group=="citationfull":
+            if transforms:
+                transform = T.Compose([*no_split_transforms, split,])
+            else:
+                transform = T.Compose([split])
+            if transforms:
+                dataset = CitationFull(
+                    root=root,
+                    name="Cora",
+                    transform=T.Compose(transforms),
+                )
+            else:
+                dataset = CitationFull(root=root, name="Cora")
+        else:
+            raise ValueError(f"Invalid dataset/group {name} {group}")
+
+    elif name.lower() == "cora_ml":
         if transforms:
-            dataset = Planetoid(
+            transform = T.Compose([*no_split_transforms, split,])
+        else:
+            transform = T.Compose([split])
+        if transforms:
+            dataset = CitationFull(
                 root=root,
-                name="Cora",
-                split="public",
+                name="Cora_ml",
                 transform=T.Compose(transforms),
             )
         else:
-            dataset = Planetoid(root=root, name="Cora", split="public")
-    elif name.lower() == "pubmed":
+            dataset = CitationFull(root=root, name="Cora_ml")
+    elif name.lower() == "dblp":
         if transforms:
-            dataset = Planetoid(
+            transform = T.Compose([*no_split_transforms, split,])
+        else:
+            transform = T.Compose([split])
+        if transforms:
+            dataset = CitationFull(
                 root=root,
-                name="Pubmed",
-                split="public",
+                name="dblp",
                 transform=T.Compose(transforms),
             )
+        else:
+            dataset = CitationFull(root=root, name="dblp")
+
+    elif name.lower() == "pubmed":
+        if group=="planetoid":
+            if transforms:
+                dataset = Planetoid(
+                    root=root,
+                    name="Pubmed",
+                    split="public",
+                    transform=T.Compose(transforms),
+                )
+            else:
+                dataset = Planetoid(root=root, name="Pubmed", split="public")
+        elif group=="citationfull":
+            if transforms:
+                transform = T.Compose([*no_split_transforms, split,])
+            else:
+                transform = T.Compose([split])
+            if transforms:
+                dataset = CitationFull(
+                    root=root,
+                    name="Pubmed",
+                    transform=T.Compose(transforms),
+                )
+            else:
+                dataset = CitationFull(root=root, name="Pubmed")
         else:
             dataset = Planetoid(root=root, name="Pubmed", split="public")
     else:

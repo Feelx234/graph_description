@@ -369,6 +369,7 @@ rule gnn_optimize_optuna:
         objective = partial(gnn_objective,
                             gnn_kind=wildcards.gnn_kind,
                             dataset=wildcards.dataset,
+                            group=wildcards.group,
                             splits=splits, y_val=y_val)
 
         run_and_save_study(
@@ -651,7 +652,7 @@ rule get_gnn_predictions:
             from graph_description.training_utils import gnn_get_config, TrialWrapperDict
             from graph_description.gnn.run import main
             trial = TrialWrapperDict(input[1])
-            cfg = gnn_get_config(trial, wildcards.gnn_kind, wildcards.dataset)
+            cfg = gnn_get_config(trial, wildcards.gnn_kind, wildcards.dataset, wildcards.group)
             prediction = main(cfg, splits, init_seed=0, train_seed=0, silent=True)
         np.save(output[0], prediction, allow_pickle=False)
 
@@ -864,7 +865,7 @@ rule agg_train_per_class:
 
 
 
-rule all_xgb:
+rule all_planetoid_xgb:
     input :
         expand((experiment_dir+
         "/agg_train_per_class"
@@ -881,6 +882,34 @@ rule all_xgb:
         "/split_{dyn_num_train_per_class,[^_]+}_{num_val,[0-9]+}_{num_test,rest|[0-9]+}_{dyn_split_seed,[^/\\\\]+}"+
         "/{joker,[^g].*}"+csv_ending),
     shell: 'touch "{output}"'
+#  snakemake "./snakemake_base/experiments/agg_train_per_class/all/score_accuracy/split_crange(5,201)_500_rest_range(20)/xgbclass_opti(0,100).csv" --cores 32 --wms-monitor "http://127.0.0.1:5000" --rerun-incomplete --retries 3
+#  snakemake "./snakemake_base/experiments/agg_train_per_class/all/score_accuracy/split_crange(5,201)_500_rest_range(20)/rulefit10_opti(0,100).csv" --cores 32 --wms-monitor "http://127.0.0.1:5000" --rerun-incomplete --retries 3
+
+datasets_per_group = {
+    "planetoid" : ["citeseer", "pubmed", "cora"],
+    "citationfull" :  ["citeseer", "pubmed", "cora", "cora_ml", "dblp"],
+}
+for group, datasets in datasets_per_group.items():
+    rule_name = f"make_all_{group}"
+    rule:
+        name :rule_name,
+        input :
+            expand((experiment_dir+
+            "/agg_train_per_class"
+            "/{dataset}_"+f"{group}"+
+            "/{round}"+
+            "/score_{{score_name}}"+
+            "/split_{{dyn_num_train_per_class}}_{{num_val}}_{{num_test}}_{{dyn_split_seed}}"+
+            "/{{joker}}"+csv_ending), dataset=datasets, group=group, round=["round_0","round_1","round_2"]),
+        output :
+            (experiment_dir+
+            "/agg_train_per_class"
+            f"/{group}_all"+
+            "/score_{score_name}"+
+            "/split_{dyn_num_train_per_class,[^_]+}_{num_val,[0-9]+}_{num_test,rest|[0-9]+}_{dyn_split_seed,[^/\\\\]+}"+
+            "/{joker,[^g].*}"+csv_ending),
+        shell: 'touch "{output}"'
+
 #  snakemake "./snakemake_base/experiments/agg_train_per_class/all/score_accuracy/split_crange(5,201)_500_rest_range(20)/xgbclass_opti(0,100).csv" --cores 32 --wms-monitor "http://127.0.0.1:5000" --rerun-incomplete --retries 3
 #  snakemake "./snakemake_base/experiments/agg_train_per_class/all/score_accuracy/split_crange(5,201)_500_rest_range(20)/rulefit10_opti(0,100).csv" --cores 32 --wms-monitor "http://127.0.0.1:5000" --rerun-incomplete --retries 3
 
@@ -922,7 +951,44 @@ rule all_both_gnn:
 #  snakemake "./snakemake_base/experiments/agg_train_per_class/all/score_accuracy/split_crange(5,201)_500_rest_range(20)/gat2017_0_0_opti(0,100).csv" --cores 4 --wms-monitor "http://127.0.0.1:5000" --rerun-incomplete --retries 3
 
 
+for group, datasets in datasets_per_group.items():
+    rule_name = f"gnn_make_all_{group}"
+    rule:
+        name : rule_name
+        input :
+            expand((experiment_dir+
+            "/agg_train_per_class"
+            "/{dataset}_"+f"{group}"+
+            "/baselines"+
+            "/score_{{score_name}}"+
+            "/split_{{dyn_num_train_per_class}}_{{num_val}}_{{num_test}}_{{dyn_split_seed}}"+
+            "/{{joker}}"+csv_ending), dataset=datasets, group=group),
+        output :
+            (experiment_dir+
+            "/agg_train_per_class"
+            f"/{group}_all"+
+            "/score_{score_name}"+
+            "/split_{dyn_num_train_per_class,[^_]+}_{num_val,[0-9]+}_{num_test,rest|[0-9]+}_{dyn_split_seed,[^/\\\\]+}"+
+            "/{joker,(gat|gcn).*}"+csv_ending),
+        shell: 'touch "{output}"'
 
+    rule:
+        name : f"gnn_both_make_all_{group}"
+        input :
+            expand((experiment_dir+
+            "/agg_train_per_class"
+            f"/{group}_all"+
+            "/score_{{score_name}}"+
+            "/split_{{dyn_num_train_per_class}}_{{num_val}}_{{num_test}}_{{dyn_split_seed}}"+
+            "/{gnn_kind}{{joker}}"+csv_ending), dataset=datasets, group=group, gnn_kind=["gat2017", "gcn2017"]),
+        output :
+            (experiment_dir+
+            "/agg_train_per_class"
+            f"/{group}_all"+
+            "/score_{score_name}"+
+            "/split_{dyn_num_train_per_class,[^_]+}_{num_val,[0-9]+}_{num_test,rest|[0-9]+}_{dyn_split_seed,[^/\\\\]+}"+
+            "/gnns{joker,.*}"+csv_ending),
+        shell: 'touch "{output}"'
 
 
 

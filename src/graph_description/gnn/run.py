@@ -53,6 +53,7 @@ def main(cfg: DictConfig, splits=None, init_seed=0, train_seed=0, silent=False):
 
     dataset = get_dataset(
         name=cfg.dataset.name,
+        group=cfg.dataset.group,
         root=cfg.data_root,
         transforms=[T.ToSparseTensor(remove_edge_index=False)],
         public_split=cfg.public_split,

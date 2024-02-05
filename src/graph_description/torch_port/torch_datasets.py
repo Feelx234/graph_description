@@ -457,9 +457,9 @@ class Planetoid(InMemoryDataset):
         self.remove_zero_degree_nodes = remove_zero_degree_nodes
         super().__init__(root, transform, pre_transform,
                          force_reload=force_reload, log=log)
-        
+
         self.load(self.processed_paths[0])
-        
+
 
         if split == 'full':
             data = self.get(0)
@@ -778,11 +778,11 @@ class CitationFull(InMemoryDataset):
 
     @property
     def raw_dir(self) -> str:
-        return osp.join(self.root, self.name, 'raw')
+        return osp.join(self.root, "citationfull", self.name, 'raw')
 
     @property
     def processed_dir(self) -> str:
-        return osp.join(self.root, self.name, 'processed')
+        return osp.join(self.root, "citationfull", self.name, 'processed')
 
     @property
     def raw_file_names(self) -> str:

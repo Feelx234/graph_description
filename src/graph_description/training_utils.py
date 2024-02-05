@@ -172,7 +172,7 @@ def get_root_folder():
     return Path(__file__).parent.parent.parent
 
 
-def gnn_get_config(trial, gnn_kind, dataset):
+def gnn_get_config(trial, gnn_kind, dataset, group):
     root_folder = get_root_folder()
     from hydra import compose, initialize_config_dir
     config_dir = root_folder/"src"/"graph_description"/"gnn"/"config"
@@ -181,7 +181,7 @@ def gnn_get_config(trial, gnn_kind, dataset):
         cfg = compose(config_name="main",
                         overrides=["cuda=0",
                                     f"model={gnn_kind}",
-                                    f"dataset={dataset}",
+                                    f"dataset={group}/{dataset}",
                                     f"data_root={data_root}",
                                     f"patience={trial.suggest_int('patience',0,100)}",
                                     f"optim.learning_rate={trial.suggest_float('lr',1e-3,100,log=True)}",
@@ -194,9 +194,9 @@ def gnn_get_config(trial, gnn_kind, dataset):
 
 
 
-def gnn_objective(trial, gnn_kind, dataset, splits, y_val):
+def gnn_objective(trial, gnn_kind, dataset, group, splits, y_val):
     from graph_description.gnn.run import main
-    cfg = gnn_get_config(trial, gnn_kind, dataset)
+    cfg = gnn_get_config(trial, gnn_kind, dataset, group=group)
     prediction = main(cfg, splits, init_seed=0, train_seed=0, silent=True)
     val_prediction = prediction[splits["valid"]]
     return accuracy_score(val_prediction, y_val)
