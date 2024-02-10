@@ -7,6 +7,41 @@ from scipy.sparse import coo_array
 
 from collections import defaultdict
 
+
+def get_range_representation(G, num_nodes_df):
+    if isinstance(G, (nx.Graph, nx.DiGraph)):
+        assert num_nodes_df == G.number_of_nodes(), f"network and df don't have the same number of nodes {num_nodes_df} {G.number_of_nodes()}"
+        return nx_to_range_representation(G)
+    elif isinstance(G, np.array):
+        return edge_array_to_range_representation(G, num_nodes_df)
+    else:
+        raise NotImplemented("Only networkx graph or numpy array supported")
+
+@njit
+def edge_array_to_range_representation(edge_arr, num_nodes):
+    """Converts an edge array into a pred representation"""
+    succ_range = np.empty(num_nodes+1, dtype=np.int32)
+    succ_idx = np.empty(edge_arr.shape[0], dtype=np.int32)
+    succ_range[0]=0
+    order = np.argsort(edge_arr[:,0])
+    edge_arr= edge_arr[order,:]
+    succ_idx[:]=edge_arr[:,1]
+
+    curr_node=0
+    for num_edges_so_far in range(len(edge_arr)):
+        u = edge_arr[num_edges_so_far,0]
+        if curr_node==u:
+            continue
+        while curr_node < u:
+            curr_node+=1
+            succ_range[curr_node]=num_edges_so_far
+            
+    while curr_node < len(succ_range)-1:
+        curr_node+=1
+        succ_range[curr_node]=len(edge_arr)
+    return succ_range, succ_idx
+
+
 class SumAggregator:
     def __init__(self, column_names):
         self.column_names=column_names
