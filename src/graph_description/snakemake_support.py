@@ -13,7 +13,7 @@ def load_dataset_splitted(path_splits, path_df, return_train=True, return_val=Tr
     splits = np.load(path_splits)
     import pandas as pd
     df  = pd.read_pickle(path_df)
-    return load_dataset_splitted(splits, df, return_train=return_train, return_val=return_val, return_test=return_test, return_full=return_full, labelsonly_dict=labelsonly_dict)
+    return _load_dataset_splitted(splits, df, return_train=return_train, return_val=return_val, return_test=return_test, return_full=return_full, labelsonly_dict=labelsonly_dict)
 
 def _load_dataset_splitted(splits, df, labelsonly_dict=None, return_train=True, return_val=True, return_test=False, return_full=False):
     output_path = None
@@ -25,11 +25,11 @@ def _load_dataset_splitted(splits, df, labelsonly_dict=None, return_train=True, 
         output_path = labelsonly_dict["output_path"]
         round_str = labelsonly_dict["round"]
         G = labelsonly_dict["G"]
-        
+
     if output_path is not None and "split_labelsonly" in output_path:
         import pandas as pd
         round_int = int(round_str)#
-        tmp = df["labels"].copy()
+        labels_copy = df["labels"].copy()
         tmp = df["labels"].copy()
         tmp[~splits["train_mask"]]=-1
         df = pd.DataFrame({"labels": tmp})
@@ -41,7 +41,7 @@ def _load_dataset_splitted(splits, df, labelsonly_dict=None, return_train=True, 
         total_df = pd.concat(dfs, axis=1)
         total_df.columns= list(map(fix_column_name, total_df.columns))
         df = total_df
-        df["labels"] = tmp
+        df["labels"] = labels_copy
 
 
 
