@@ -1,8 +1,0 @@
-{
-    "loss": "modified_huber",
-    "penalty": "elasticnet",
-    "l1_ratio": 0.14365162194371717,
-    "alpha": 4.853164536602076e-06,
-    "tol": 1.3420066276446625e-05,
-    "n_iter_no_change": 9
-}

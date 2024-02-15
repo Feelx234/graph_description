@@ -1,7 +1,0 @@
-{
-    "loss": "log_loss",
-    "penalty": "l2",
-    "alpha": 2.9572608200036586e-05,
-    "tol": 0.03781867532067358,
-    "n_iter_no_change": 33
-}
