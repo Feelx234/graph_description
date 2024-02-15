@@ -1,0 +1,7 @@
+{
+    "loss": "squared_error",
+    "penalty": "l2",
+    "alpha": 3.574642068647423e-05,
+    "tol": 3.342946960527819e-06,
+    "n_iter_no_change": 91
+}

@@ -1,0 +1,8 @@
+{
+    "loss": "squared_error",
+    "penalty": "elasticnet",
+    "l1_ratio": 0.7324436384425396,
+    "alpha": 6.218833294914383e-06,
+    "tol": 1.0283886727002483e-05,
+    "n_iter_no_change": 62
+}

@@ -1,0 +1,18 @@
+{
+    "init_lr": 0.025867359886223303,
+    "stop_lr": 0.01940216325207715,
+    "lr_factor": 0.99,
+    "start_subsample": 0.8715777987992658,
+    "stop_subsample": 0.9883754562729257,
+    "timespan_subsample": 2,
+    "timespan_offset_subsample": 2,
+    "start_weight": 3,
+    "stop_weight": 3,
+    "timespan_weight": 2,
+    "timespan_offset_weight": 3,
+    "colsample": 0.3571349780404877,
+    "max_depth": 2,
+    "early_stopping_rounds": 40,
+    "lambda": 5.232249958154326e-08,
+    "alpha": 1.0070058606372703e-08
+}

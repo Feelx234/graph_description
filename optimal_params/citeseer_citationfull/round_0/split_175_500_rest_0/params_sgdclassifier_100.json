@@ -1,0 +1,7 @@
+{
+    "loss": "squared_hinge",
+    "penalty": "l1",
+    "alpha": 3.208840332610708e-06,
+    "tol": 3.3203252508271976e-05,
+    "n_iter_no_change": 86
+}

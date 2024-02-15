@@ -1,0 +1,6 @@
+{
+    "tree_size": 36,
+    "memory_par": 0.0161176220321396,
+    "lin_trim_quantile": 0.03384113056071057,
+    "exp_rand_tree_size": false
+}

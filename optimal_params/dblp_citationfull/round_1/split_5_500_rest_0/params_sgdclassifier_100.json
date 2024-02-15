@@ -1,0 +1,9 @@
+{
+    "loss": "epsilon_insensitive",
+    "epsilon": 0.04410559607180006,
+    "penalty": "elasticnet",
+    "l1_ratio": 0.7040078783890042,
+    "alpha": 0.0016222616267540302,
+    "tol": 1.2282771741057067e-05,
+    "n_iter_no_change": 38
+}
