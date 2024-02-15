@@ -636,13 +636,17 @@ rule get_gnn_predictions:
 # snakemake "./snakemake_base/classifier_predictions/pubmed_planetoid/baselines/split_20_500_rest_1/gat2017_0_0.npy" --cores 1
 # snakemake "./snakemake_base/classifier_predictions/pubmed_planetoid/baselines/split_20_500_rest_1/gat2017_0_0_opti(0 10).npy" --cores 1 -f
 
-def process_score_name(score_name):
+def process_score_name(score_name, path):
     from sklearn.metrics import accuracy_score, f1_score
-    if "_" in score_name:
-        score_name, set_name = score_name.split("_")
-        assert set_name in ("test", "val", "train")
+    if "_train" in path:
+        set_name = "train"
+    elif "_val" in path:
+        set_name = "val"
+    elif "_test" in path:
+        set_name = "test"
     else:
         set_name="test"
+    assert set_name in ("test", "val", "train")
     scorers = {
             "accuracy" : accuracy_score,
             "f1" : partial(f1_score, average="micro")
@@ -659,28 +663,28 @@ rule test_gnnclassifier:
         splits_dir+"/{dataset}_{group}/{num_train_per_class}_{num_val}_{num_test}_{split_seed}"+npz_ending,
         aggregated_datasets_dir+"/{dataset}_{group}_0"+pickle_ending
     output :
-        (scorer_dir+
-        "/{dataset}_{group}"+
-        "/{joker2}"+
-        "/score_{score_name}"+
-        "/split_{num_train_per_class}_{num_val}_{num_test}_{split_seed}"+
-        "/{joker}"+txt_ending),
+        expand(scorer_dir+
+        "/{{dataset}}_{{group}}"+
+        "/{{joker2}}"+
+        "/score_{{score_name}}{splits}"+
+        "/split_{{num_train_per_class}}_{{num_val}}_{{num_test}}_{{split_seed}}"+
+        "/{{joker}}"+txt_ending, splits=["", "_train", "_val"]),
     run :
         import numpy as np
         import pandas as pd
+        for path in output:
+            scorer, split_name = process_score_name(wildcards.score_name, path)
+            splits = np.load(input[1])
+            mask = splits[split_name+"_mask"]
 
-        scorer, split_name = process_score_name(wildcards.score_name)
-        splits = np.load(input[1])
-        mask = splits[split_name+"_mask"]
+            df  = pd.read_pickle(input[2])
+            test_df = df[mask]
+            y_test = test_df["labels"]
 
-        df  = pd.read_pickle(input[2])
-        test_df = df[mask]
-        y_test = test_df["labels"]
-
-        y_test_predict = np.load(input[0])[mask]
-        score = scorer(y_test, y_test_predict)
-        score = np.array([score])
-        np.savetxt(output[0], score)
+            y_test_predict = np.load(input[0])[mask]
+            score = scorer(y_test, y_test_predict)
+            score = np.array([score])
+            np.savetxt(path, score)
 # snakemake "./snakemake_base/scores/citeseer_planetoid/baselines/score_accuracy/split_20_500_rest_1/gat2017_0_0.txt" --cores 1
 
 
@@ -864,20 +868,28 @@ rule all_planetoid_xgb:
 
 datasets_per_group = {
     "planetoid" : ["citeseer", "pubmed", "cora"],
-    "citationfull" :  ["citeseer", "pubmed", "cora", "cora_ml", "dblp"],
+    "citationfull" :  ["citeseer", "pubmed", "cora_ml", "dblp", "cora"],
 }
+def remove_citationfull_cora2(l):
+    out = []
+    for s in l:
+        if "citationfull" in s and "cora" in s and "cora_ml" not in s:
+            continue
+        out.append(s)
+    return out
+
 for group, datasets in datasets_per_group.items():
     rule_name = f"make_all_{group}"
     rule:
         name :rule_name,
         input :
-            expand((experiment_dir+
+            remove_citationfull_cora2(expand((experiment_dir+
             "/agg_train_per_class"
             "/{dataset}_"+f"{group}"+
             "/{round}"+
-            "/score_{{score_name}}"+
+            "/score_{{score_name}}{split}"+
             "/split_{{dyn_num_train_per_class}}_{{num_val}}_{{num_test}}_{{dyn_split_seed}}"+
-            "/{{joker}}"+csv_ending), dataset=datasets, group=group, round=["round_0","round_1","round_2"]),
+            "/{{joker}}"+csv_ending), dataset=datasets, group=group, round=["round_0", "round_1", "round_2"], split=["", "_train", "_val"])),
         output :
             (experiment_dir+
             "/agg_train_per_class"
@@ -937,9 +949,9 @@ for group, datasets in datasets_per_group.items():
             "/agg_train_per_class"
             "/{dataset}_"+f"{group}"+
             "/baselines"+
-            "/score_{{score_name}}"+
+            "/score_{{score_name}}{split}"+
             "/split_{{dyn_num_train_per_class}}_{{num_val}}_{{num_test}}_{{dyn_split_seed}}"+
-            "/{{joker}}"+csv_ending), dataset=datasets, group=group),
+            "/{{joker}}"+csv_ending), dataset=datasets, group=group, split=["", "_train", "_val"]),
         output :
             (experiment_dir+
             "/agg_train_per_class"
