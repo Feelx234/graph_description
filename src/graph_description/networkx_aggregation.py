@@ -12,10 +12,10 @@ def get_range_representation(G, num_nodes_df):
     if isinstance(G, (nx.Graph, nx.DiGraph)):
         assert num_nodes_df == G.number_of_nodes(), f"network and df don't have the same number of nodes {num_nodes_df} {G.number_of_nodes()}"
         return nx_to_range_representation(G)
-    elif isinstance(G, np.array):
+    elif isinstance(G, np.ndarray):
         return edge_array_to_range_representation(G, num_nodes_df)
     else:
-        raise NotImplemented("Only networkx graph or numpy array supported")
+        raise NotImplementedError("Only networkx graph or numpy array supported")
 
 @njit
 def edge_array_to_range_representation(edge_arr, num_nodes):
@@ -47,8 +47,7 @@ class SumAggregator:
         self.column_names=column_names
 
     def apply(self, df, network):
-        assert len(df) == network.number_of_nodes(), f"network and df don't have the same number of nodes {df.shape} {network.number_of_nodes()}"
-        pred_range, pred_idx = nx_to_range_representation(network)
+        pred_range, pred_idx = get_range_representation(network, len(df))
         out_columns = {}
         for column_name in self.column_names:
             column = df[column_name]
@@ -162,7 +161,7 @@ class MeanAggregator:
         self.column_names=column_names
 
     def apply(self, df, network):
-        pred_range, pred_idx = nx_to_range_representation(network)
+        pred_range, pred_idx = get_range_representation(network, len(df))
         out_degrees = np.array(get_out_degree(pred_range, pred_idx), dtype=np.float64)
         out_degrees = np.maximum(out_degrees, 1)
         out_columns = {}

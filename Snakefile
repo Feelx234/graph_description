@@ -16,8 +16,7 @@ csv_ending=".csv"
 
 from functools import partial
 
-def fix_column_name(name):
-    return str(name).replace("<", " smaller ").replace("[", "{").replace("]",  "}")
+from graph_description.snakemake_support import *
 
 import numpy as np
 
@@ -416,29 +415,7 @@ rule rulefit_train_predict:
 
 
 
-def load_dataset_splitted(path_splits, path_df, return_train=True, return_val=True, return_test=False, return_full=False):
-    import numpy as np
-    splits = np.load(path_splits)
-    import pandas as pd
-    df  = pd.read_pickle(path_df)
 
-    def get_by_split(split_name):
-        mask = splits[split_name]
-        mask_df = df[mask]
-        X = mask_df.drop("labels", axis=1)
-        y = mask_df["labels"]
-        return X, y
-
-    out = tuple()
-    if return_train:
-        out += get_by_split("train_mask")
-    if return_val:
-        out += get_by_split("val_mask")
-    if return_test:
-        out += get_by_split("test_mask")
-    if return_full:
-        out +=(df,)
-    return out
 
 
 
@@ -454,7 +431,7 @@ rule rulefit_optimize_optuna:
         splits_dir+"/{dataset}_{group}/{num_train_per_class}_{num_val}_{num_test}_{split_seed}"+npz_ending,
         aggregated_datasets_dir+"/{dataset}_{group}_{round}_dense"+pickle_ending
     run:
-        (X_train, y_train, X_val, y_val)=load_dataset_splitted(input[0], input[1])
+        (X_train, y_train, X_val, y_val)=load_dataset_splitted(input[0], input[1], output[0], round=wildcards.round)
 
         from graph_description.training_utils import rulefit_objective
 
@@ -515,7 +492,7 @@ rule sgdclassifier_optimize_optuna:
         (params_dir+
         "/{dataset}_{group}"+
         "/round_{round}"+
-        "/split_{num_train_per_class}_{num_val}_{num_test}_{split_seed}/params_sgdclassifier_{n_trials}.json")
+        "/spli{uselabels,t|t_labelsonly}_{num_train_per_class}_{num_val}_{num_test}_{split_seed}/params_sgdclassifier_{n_trials}.json")
     input:
         splits_dir+"/{dataset}_{group}/{num_train_per_class}_{num_val}_{num_test}_{split_seed}"+npz_ending,
         aggregated_datasets_dir+"/{dataset}_{group}_{round}_dense"+pickle_ending
