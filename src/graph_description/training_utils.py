@@ -38,6 +38,8 @@ class LinearScheduler(TrainingCallback):
         #print(model.attributes())
         if epoch>self.offset and epoch % (self.timespan) == 0:
             new_val = self.agg(self.stop_val, self.curr_val+self.step)
+            assert new_val >= min(self.stop_val, self.start_val), str([new_val, self.step, self.start_val, self.step_val])
+            assert new_val <= max(self.stop_val, self.start_val), str([new_val, self.step, self.start_val, self.step_val])
             if new_val!=self.curr_val:
                 self.curr_val=new_val
                 if not self.silent:

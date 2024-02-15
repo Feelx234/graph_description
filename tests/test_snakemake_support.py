@@ -45,6 +45,11 @@ class Test1(unittest.TestCase):
         assert_frame_equal(df_val, df_full[splits["val_mask"]].drop("labels", axis=1))
         assert_series_equal(y_val, df_full[splits["val_mask"]]["labels"])
 
+        edges = np.array(list(G.edges))
+        df_train, y_train, df_val, y_val, df_full = _load_dataset_splitted(splits, df,
+                               labelsonly_dict=dict(output_path="some_prefix/split_labelsonly/other_stuff", G=edges, round=1),
+                                 return_full=True)
+
 
 if __name__ == "__main__":
     unittest.main()

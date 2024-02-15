@@ -112,6 +112,9 @@ def my_accuracy(y_true, y_pred):
 
 xgb_raw = "/xgbclass_{n_estimators,[^_]+}_{max_depth,[^_]+}_{clf_seed,[^_]+}{early_stopping_rounds,.*}"
 xgb_str = xgb_raw+xgb_ending
+
+xgb_raw_no_constr = "/xgbclass_{n_estimators}_{max_depth}_{clf_seed}{early_stopping_rounds}"
+xgb_str_no_constr = xgb_raw_no_constr+xgb_ending
 rule xgb_train_classifier:
     output :
         (classifier_dir+
@@ -220,23 +223,9 @@ rule xgb_train_classifier:
         bst.save_model(output[0])
 
 
-
-def load_xgb(splits_path, df_path):
+def load_xgb(splits_path, df_path, wildcards=None):
     import numpy as np
-    import pandas as pd
-    splits = np.load(splits_path)
-    train_mask = splits["train_mask"]
-    val_mask = splits["val_mask"]
-
-    df  = pd.read_pickle(df_path)
-    train_df = df[train_mask]
-    X_train = train_df.drop("labels", axis=1)
-    y_train = train_df["labels"]
-
-    val_df = df[val_mask]
-    X_val = val_df.drop("labels", axis=1)
-    y_val = val_df["labels"]
-
+    X_train, y_train, X_val, y_val = load_dataset_splitted(splits_path, df_path, wildcards=wildcards)
     num_classes = len(np.bincount(y_train))
 
     import xgboost as xgb
@@ -277,12 +266,13 @@ rule xgb_optimize_optuna:
         (params_dir+
         "/{dataset}_{group}"+
         "/round_{round}"+
-        "/split_{num_train_per_class}_{num_val}_{num_test}_{split_seed}/params_xgb_{n_trials}.json")
+        "/split{split_mutator,_|_labelsonly_}{num_train_per_class}_{num_val}_{num_test}_{split_seed}"+
+        "/params_xgb_{n_trials}.json")
     input:
         splits_dir+"/{dataset}_{group}/{num_train_per_class}_{num_val}_{num_test}_{split_seed}"+npz_ending,
         aggregated_datasets_dir+"/{dataset}_{group}_{round}"+pickle_ending
     run:
-        dtrain, dval, num_classes = load_xgb(input[0], input[1])
+        dtrain, dval, num_classes = load_xgb(input[0], input[1], wildcards=wildcards)
 
         from graph_description.training_utils import xgb_objective
 
@@ -300,14 +290,15 @@ rule xgb_optimize_optuna:
         )
 # snakemake ./snakemake_base/optimal_params/citeseer_planetoid/round_0/split_20_500_rest_0/params_xgb_10.json --cores 1
 
-
+full_output_split_str =  "/split{split_mutator,_|_labelsonly_}{num_train_per_class}_{num_val}_{num_test}_{split_seed}"
+full_input_split_str =  "/split{split_mutator}{num_train_per_class}_{num_val}_{num_test}_{split_seed}"
 
 rule xgb_train_predict_opticlassifier:
     output :
         (prediction_dir+
         "/{dataset}_{group}"+
         "/round_{round}"+
-        "/split_{num_train_per_class}_{num_val}_{num_test}_{split_seed}"+
+        full_output_split_str+
         "/xgbclass_opti({opti_split_seed},{param_search_n_trials}).npy")
     input :
         splits_dir+"/{dataset}_{group}/{num_train_per_class}_{num_val}_{num_test}_{split_seed}"+npz_ending,
@@ -315,7 +306,7 @@ rule xgb_train_predict_opticlassifier:
         (params_dir+
             "/{dataset}_{group}"+
             "/round_{round}"+
-            "/split_{num_train_per_class}_{num_val}_{num_test}_{opti_split_seed}"+
+            full_input_split_str+
             "/params_xgb_{param_search_n_trials}.json")
     run :
         import pandas as pd
@@ -346,7 +337,8 @@ rule gnn_optimize_optuna:
         (params_dir+
         "/{dataset}_{group}"+
         "/baselines"+
-        "/split_{num_train_per_class}_{num_val}_{num_test}_{split_seed}/params_{gnn_kind,gcn2017|gat2017}_{n_trials}.json")
+        "/split_{num_train_per_class}_{num_val}_{num_test}_{split_seed}"
+        "/params_{gnn_kind,gcn2017|gat2017}_{n_trials}.json")
     input:
         splits_dir+"/{dataset}_{group}/{num_train_per_class}_{num_val}_{num_test}_{split_seed}"+npz_ending,
         aggregated_datasets_dir+"/{dataset}_{group}_0_labels.npy"
@@ -492,12 +484,13 @@ rule sgdclassifier_optimize_optuna:
         (params_dir+
         "/{dataset}_{group}"+
         "/round_{round}"+
-        "/spli{uselabels,t|t_labelsonly}_{num_train_per_class}_{num_val}_{num_test}_{split_seed}/params_sgdclassifier_{n_trials}.json")
+        full_output_split_str+
+        "/params_sgdclassifier_{n_trials}.json")
     input:
         splits_dir+"/{dataset}_{group}/{num_train_per_class}_{num_val}_{num_test}_{split_seed}"+npz_ending,
         aggregated_datasets_dir+"/{dataset}_{group}_{round}_dense"+pickle_ending
     run:
-        (X_train, y_train, X_val, y_val)=load_dataset_splitted(input[0], input[1])
+        (X_train, y_train, X_val, y_val)=load_dataset_splitted(input[0], input[1], wildcards=wildcards)
         X_train_val, y_train_val, sklearn_val_mask = create_joined_train_val_set_for_sgdclassifier(X_train, y_train, X_val, y_val)
 
         from graph_description.training_utils import sgdclassifier_objective
@@ -525,7 +518,7 @@ rule sgdclassifier_train_predict_opticlassifier:
         (prediction_dir+
         "/{dataset}_{group}"+
         "/round_{round}"+
-        "/split_{num_train_per_class}_{num_val}_{num_test}_{split_seed}"+
+        full_output_split_str+
         "/sgdclassifier_opti({opti_split_seed},{param_search_n_trials}).npy")
     input :
         splits_dir+"/{dataset}_{group}/{num_train_per_class}_{num_val}_{num_test}_{split_seed}"+npz_ending,
@@ -533,10 +526,10 @@ rule sgdclassifier_train_predict_opticlassifier:
         (params_dir+
             "/{dataset}_{group}"+
             "/round_{round}"+
-            "/split_{num_train_per_class}_{num_val}_{num_test}_{opti_split_seed}"+
+            full_input_split_str+
             "/params_sgdclassifier_{param_search_n_trials}.json")
     run :
-        (X_train, y_train, X_val, y_val, df)=load_dataset_splitted(input[0], input[1], return_val=True, return_full=True)
+        (X_train, y_train, X_val, y_val, df)=load_dataset_splitted(input[0], input[1], return_val=True, return_full=True, wildcards=wildcards)
         X_train_val, y_train_val, sklearn_val_mask = create_joined_train_val_set_for_sgdclassifier(X_train, y_train, X_val, y_val)
 
         from graph_description.training_utils import sgdclassifier_train_classifier, TrialWrapperDict
@@ -653,12 +646,12 @@ def process_score_name(score_name, path):
     }
     return scorers[score_name], set_name
 
-rule test_gnnclassifier:
+rule score_classifier:
     input :
         (prediction_dir+
         "/{dataset}_{group}"+
         "/{joker2}"+
-        "/split_{num_train_per_class}_{num_val}_{num_test}_{split_seed}"+
+        "/split{split_mutator}{num_train_per_class}_{num_val}_{num_test}_{split_seed}"+
         "/{joker}.npy"),
         splits_dir+"/{dataset}_{group}/{num_train_per_class}_{num_val}_{num_test}_{split_seed}"+npz_ending,
         aggregated_datasets_dir+"/{dataset}_{group}_0"+pickle_ending
@@ -667,7 +660,7 @@ rule test_gnnclassifier:
         "/{{dataset}}_{{group}}"+
         "/{{joker2}}"+
         "/score_{{score_name}}{splits}"+
-        "/split_{{num_train_per_class}}_{{num_val}}_{{num_test}}_{{split_seed}}"+
+        "/split{{split_mutator,_|_labelsonly_}}{{num_train_per_class}}_{{num_val}}_{{num_test}}_{{split_seed}}"+
         "/{{joker}}"+txt_ending, splits=["", "_train", "_val"]),
     run :
         import numpy as np
@@ -690,13 +683,13 @@ rule test_gnnclassifier:
 
 
 
-rule test_xgbclassifier:
+rule OLD_test_xgbclassifier:
     input :
         (classifier_dir+
         "/{dataset}_{group}"+
         "/round_{round}"+
         "/split_{num_train_per_class}_{num_val}_{num_test}_{split_seed}"+
-        xgb_str),
+        xgb_str_no_constr),
         splits_dir+"/{dataset}_{group}/{num_train_per_class}_{num_val}_{num_test}_{split_seed}"+npz_ending,
         aggregated_datasets_dir+"/{dataset}_{group}_{round}"+pickle_ending
     output :
@@ -764,7 +757,7 @@ from itertools import product
 
 def unpack_wildcards(wildcards, _locals):
     for key in wildcards.keys():
-        print(key)
+        #print(key)
         if key.startswith("dyn_"):
             value = eval(wildcards[key])
             if isinstance(value, (list, tuple, range)):
@@ -788,10 +781,10 @@ def agg_train_per_class_helper(wildcards):
         f"/{wildcards.dataset}_{wildcards.group}"+
         f"/{wildcards.round}"+
         f"/score_{wildcards.score_name}"+
-        f"/split_{num_train_per_class}_{wildcards.num_val}_{wildcards.num_test}_{split_seed}"+
+        f"/split{wildcards.split_mutator}{num_train_per_class}_{wildcards.num_val}_{wildcards.num_test}_{split_seed}"+
         wildcards.joker+txt_ending)
         for num_train_per_class, split_seed in product(dyn_num_train_per_class, dyn_split_seed)]
-    print(result)
+    #print(result)
     return result
 
     # message: "rule agg_train_per_class\r\n\toutput: {output}\r\n\twildcards: {wildcards}."
@@ -805,7 +798,7 @@ rule agg_train_per_class:
         "/{dataset}_{group}"+
         "/{round,baselines|round_[0-9]+}"+
         "/score_{score_name}"+
-        "/split_{dyn_num_train_per_class,[^_]+}_{num_val,[0-9]+}_{num_test,rest|[0-9]+}_{dyn_split_seed,[^/\\\\]+}"+
+        "/split{split_mutator,_|_labelsonly_}{dyn_num_train_per_class,[^_]+}_{num_val,[0-9]+}_{num_test,rest|[0-9]+}_{dyn_split_seed,[^/\\\\]+}"+
         "{joker,.*}"+csv_ending),
 
     run :
@@ -875,29 +868,36 @@ def remove_citationfull_cora2(l):
     for s in l:
         if "citationfull" in s and "cora" in s and "cora_ml" not in s:
             continue
+        if "_labelsonly_" in s and "round_0" in s:
+            continue
         out.append(s)
     return out
 
 for group, datasets in datasets_per_group.items():
-    rule_name = f"make_all_{group}"
-    rule:
-        name :rule_name,
-        input :
-            remove_citationfull_cora2(expand((experiment_dir+
-            "/agg_train_per_class"
-            "/{dataset}_"+f"{group}"+
-            "/{round}"+
-            "/score_{{score_name}}{split}"+
-            "/split_{{dyn_num_train_per_class}}_{{num_val}}_{{num_test}}_{{dyn_split_seed}}"+
-            "/{{joker}}"+csv_ending), dataset=datasets, group=group, round=["round_0", "round_1", "round_2"], split=["", "_train", "_val"])),
-        output :
-            (experiment_dir+
-            "/agg_train_per_class"
-            f"/{group}_all"+
-            "/score_{score_name}"+
-            "/split_{dyn_num_train_per_class,[^_]+}_{num_val,[0-9]+}_{num_test,rest|[0-9]+}_{dyn_split_seed,[^/\\\\]+}"+
-            "/{joker,[^g].*}"+csv_ending),
-        shell: 'touch "{output}"'
+    for mutator in ["_", "_labelsonly_"]:
+        rule_name = f"make_all_{group}_{mutator}"
+        rule:
+            name :rule_name,
+            input :
+                remove_citationfull_cora2(expand((experiment_dir+
+                "/agg_train_per_class"
+                "/{dataset}_"+f"{group}"+
+                "/{round}"+
+                "/score_{{score_name}}{split}"+
+                "/split{split_mutator}{{dyn_num_train_per_class}}_{{num_val}}_{{num_test}}_{{dyn_split_seed}}"+
+                "/{{joker}}"+csv_ending),
+                dataset=datasets, group=group,
+                round=["round_0", "round_1", "round_2"],
+                split=["", "_train", "_val"],
+                split_mutator=[mutator])),
+            output :
+                (experiment_dir+
+                "/agg_train_per_class"
+                f"/{group}_all"+
+                "/score_{score_name}"+
+                f"/split{mutator}"+"{dyn_num_train_per_class,[^_]+}_{num_val,[0-9]+}_{num_test,rest|[0-9]+}_{dyn_split_seed,[^/\\\\]+}"+
+                "/{joker,[^g].*}"+csv_ending),
+            shell: 'touch "{output}"'
 
 #  snakemake "./snakemake_base/experiments/agg_train_per_class/all/score_accuracy/split_crange(5,201)_500_rest_range(20)/xgbclass_opti(0,100).csv" --cores 32 --wms-monitor "http://127.0.0.1:5000" --rerun-incomplete --retries 3
 #  snakemake "./snakemake_base/experiments/agg_train_per_class/all/score_accuracy/split_crange(5,201)_500_rest_range(20)/rulefit10_opti(0,100).csv" --cores 32 --wms-monitor "http://127.0.0.1:5000" --rerun-incomplete --retries 3

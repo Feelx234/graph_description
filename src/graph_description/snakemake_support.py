@@ -8,25 +8,31 @@ def fix_column_name(name):
     return str(name).replace("<", " smaller ").replace("[", "{").replace("]",  "}")
 
 
-def load_dataset_splitted(path_splits, path_df, return_train=True, return_val=True, return_test=False, return_full=False, labelsonly_dict=None):
+def load_dataset_splitted(path_splits, path_df, return_train=True, return_val=True, return_test=False, return_full=False, labelsonly_dict=None, wildcards=None):
     import numpy as np
     splits = np.load(path_splits)
     import pandas as pd
     df  = pd.read_pickle(path_df)
-    return _load_dataset_splitted(splits, df, return_train=return_train, return_val=return_val, return_test=return_test, return_full=return_full, labelsonly_dict=labelsonly_dict)
+    return _load_dataset_splitted(splits, df, return_train=return_train, return_val=return_val, return_test=return_test, return_full=return_full, labelsonly_dict=labelsonly_dict, wildcards=wildcards)
 
-def _load_dataset_splitted(splits, df, labelsonly_dict=None, return_train=True, return_val=True, return_test=False, return_full=False):
-    output_path = None
+def _load_dataset_splitted(splits, df, return_train=True, return_val=True, return_test=False, return_full=False, labelsonly_dict=None, wildcards=None):
+    if wildcards is not None:
+        if "split_mutator" in wildcards.keys() and  "labelsonly" in wildcards.split_mutator:
+            from graph_description.datasets import read_attributed_graph
+            #try:
+            G, df = read_attributed_graph(wildcards.dataset, kind="edges", group=wildcards.group)
+            the_round = int(wildcards.round)
+            assert the_round > 0, "for labelsonly, need a round > 1"
+            labelsonly_dict=dict(output_path="some_prefix/split_labelsonly/other_stuff",
+                                G=G,
+                                round=the_round)
     if labelsonly_dict is not None:
-        assert "output_path" in labelsonly_dict
         assert "round" in labelsonly_dict
         assert "G" in labelsonly_dict
-
-        output_path = labelsonly_dict["output_path"]
+        print("<<<<<< labelsonly >>>>>>")
         round_str = labelsonly_dict["round"]
         G = labelsonly_dict["G"]
 
-    if output_path is not None and "split_labelsonly" in output_path:
         import pandas as pd
         round_int = int(round_str)#
         labels_copy = df["labels"].copy()

@@ -114,7 +114,6 @@ class SGDClassifierFixedSplit(SGDClassifier):
         #     )
         #     for i, seed in enumerate(seeds)
         # )
-        print("running non parallel")
         result = [fit_binary(
                 self,
                 i,
