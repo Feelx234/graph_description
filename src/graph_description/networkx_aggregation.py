@@ -35,7 +35,6 @@ def edge_array_to_range_representation(edge_arr, num_nodes):
         while curr_node < u:
             curr_node+=1
             succ_range[curr_node]=num_edges_so_far
-            
     while curr_node < len(succ_range)-1:
         curr_node+=1
         succ_range[curr_node]=len(edge_arr)
@@ -89,11 +88,21 @@ def nx_propagate_dense(column, network):
 def nx_to_range_representation(G):
     """Converts a networkx Graph G into a pred representation"""
     pred_range = np.empty(G.number_of_nodes()+1, dtype=np.int32)
-    pred_idx = np.empty(G.number_of_edges(), dtype=np.int32)
+    num_edges = G.number_of_edges()
+    if isinstance(G, nx.Graph):
+        num_edges*=2
+    pred_idx = np.empty(num_edges, dtype=np.int32)
     pred_range[0]=0
     start = 0
+
+    if isinstance(G, nx.Graph):
+        get_successors = G.neighbors
+    elif isinstance(G, nx.DiGraph):
+        get_successors = G.successors
+    else:
+        raise NotImplementedError(f"The following graph type is currently not supported: {type(G)}")
     for node in range(G.number_of_nodes()):
-        l = list(G.successors(node))
+        l = list(get_successors(node))
         stop = start + len(l)
         pred_idx[start:stop]=l
         start = stop
