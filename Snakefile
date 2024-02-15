@@ -306,7 +306,7 @@ rule xgb_train_predict_opticlassifier:
         (params_dir+
             "/{dataset}_{group}"+
             "/round_{round}"+
-            full_input_split_str+
+            "/split{split_mutator}{num_train_per_class}_{num_val}_{num_test}_{opti_split_seed}"+
             "/params_xgb_{param_search_n_trials}.json")
     run :
         import pandas as pd
@@ -526,7 +526,7 @@ rule sgdclassifier_train_predict_opticlassifier:
         (params_dir+
             "/{dataset}_{group}"+
             "/round_{round}"+
-            full_input_split_str+
+            "/split{split_mutator}{num_train_per_class}_{num_val}_{num_test}_{opti_split_seed}"+
             "/params_sgdclassifier_{param_search_n_trials}.json")
     run :
         (X_train, y_train, X_val, y_val, df)=load_dataset_splitted(input[0], input[1], return_val=True, return_full=True, wildcards=wildcards)
