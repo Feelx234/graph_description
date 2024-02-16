@@ -31,6 +31,8 @@ class LinearScheduler(TrainingCallback):
     def before_training(self, model):
         if not self.silent:
             print("new "+self.attr, self.curr_val)
+        assert self.curr_val >= min(self.stop_val, self.start_val), str([self.curr_val, self.step, self.start_val, self.step_val])
+        assert self.curr_val <= max(self.stop_val, self.start_val), str([self.curr_val, self.step, self.start_val, self.step_val])
         model.set_param(self.attr, self.curr_val)
         return model
 
@@ -109,8 +111,8 @@ def xgb_get_config(trial, num_classes):
                                         stop_val = stop_lr,
                                         timespan=1
                                        )
-    start_subsample = trial.suggest_float("start_subsample", 0.1,1)
-    stop_subsample = trial.suggest_float("stop_subsample", start_subsample,1)
+    start_subsample = np.clip(trial.suggest_float("start_subsample", 0.1,1),0,1)
+    stop_subsample = np.clip(trial.suggest_float("stop_subsample", start_subsample,1),start_subsample,1)
     sample_scheduler = LinearScheduler("subsample",
                                         start_val=start_subsample,
                                         step=0.1,
@@ -293,6 +295,49 @@ def sgdclassifier_train_classifier(trial, sklearn_val_mask, X_train_val, y_train
 
 def sgdclassifier_objective(trial, sklearn_val_mask, X_train_val, y_train_val, X_val, y_val):
     clf = sgdclassifier_train_classifier(trial, sklearn_val_mask, X_train_val, y_train_val)
+    prediction = clf.predict(X_val)
+    score = accuracy_score(prediction, y_val)
+    #print("final_score", score)
+    return score
+
+
+
+
+
+
+def explbooster_get_config(trial, validation_size : int):
+    params = dict(
+        interactions=0, # not supported for multiclass currently
+        validation_size=validation_size,
+        outer_bags = trial.suggest_int("outer_bags", 1,20),
+        inner_bags = trial.suggest_int("inner_bags", 0,3),
+        learning_rate = trial.suggest_float("learning_rate", 1e-6, 10, log=True),
+        greediness = trial.suggest_float("greediness", 0,1),
+        smoothing_rounds = trial.suggest_int("smoothing_rounds", 50,400),
+        early_stopping_rounds = trial.suggest_int("early_stopping_rounds", 10, 100),
+        min_samples_leaf = trial.suggest_int("min_samples_leaf", 1, 4),
+        min_hessian = trial.suggest_float("min_hessian", 1, 6, log=True),
+        max_leaves = trial.suggest_int("max_leaves", 1, 6),
+        random_state=0,
+        n_jobs=1,
+    )
+    return params
+
+
+def explbooster_train_classifier(trial, validation_size : int, X_train_val, y_train_val):
+    params = explbooster_get_config(trial, validation_size)
+    from interpret.glassbox import ExplainableBoostingClassifier
+    # we need to assign threadpool limits, otherwise the calculation will be run in parallel
+    # parallelism is not desired here but handled by snakemake instead
+    with threadpool_limits(limits=1, user_api='blas'):
+        with threadpool_limits(limits=1, user_api='openmp'):
+            clf = ExplainableBoostingClassifier(**params)
+            clf.fit(X_train_val, y_train_val)
+    return clf
+
+
+def explbooster_objective(trial, validation_size, X_train_val, y_train_val, X_val, y_val):
+    clf = explbooster_train_classifier(trial, validation_size, X_train_val, y_train_val)
     prediction = clf.predict(X_val)
     score = accuracy_score(prediction, y_val)
     #print("final_score", score)

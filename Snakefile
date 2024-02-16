@@ -259,7 +259,11 @@ def run_and_save_study(objective, study_name, direction, n_trials, out_path):
         file.write(json.dumps(study.best_params, indent=4))
 
 
+def dataset_dir_conditional_on_mutator(wildcards):
+    return aggregated_datasets_dir+"/{dataset}_{group}_{round}"+pickle_ending if wildcards.split_mutator=="_" else aggregated_datasets_dir+"/{dataset}_{group}_0"+pickle_ending
 
+def dataset_dir_conditional_on_mutator_dense(wildcards):
+    return aggregated_datasets_dir+"/{dataset}_{group}_{round}_dense"+pickle_ending if wildcards.split_mutator=="_" else aggregated_datasets_dir+"/{dataset}_{group}_0_dense"+pickle_ending
 
 rule xgb_optimize_optuna:
     output:
@@ -270,7 +274,7 @@ rule xgb_optimize_optuna:
         "/params_xgb_{n_trials}.json")
     input:
         splits_dir+"/{dataset}_{group}/{num_train_per_class}_{num_val}_{num_test}_{split_seed}"+npz_ending,
-        aggregated_datasets_dir+"/{dataset}_{group}_{round}"+pickle_ending
+        dataset_dir_conditional_on_mutator
     run:
         dtrain, dval, num_classes = load_xgb(input[0], input[1], wildcards=wildcards)
 
@@ -302,7 +306,7 @@ rule xgb_train_predict_opticlassifier:
         "/xgbclass_opti({opti_split_seed},{param_search_n_trials}).npy")
     input :
         splits_dir+"/{dataset}_{group}/{num_train_per_class}_{num_val}_{num_test}_{split_seed}"+npz_ending,
-        aggregated_datasets_dir+"/{dataset}_{group}_{round}"+pickle_ending,
+        dataset_dir_conditional_on_mutator,
         (params_dir+
             "/{dataset}_{group}"+
             "/round_{round}"+
@@ -479,6 +483,10 @@ def create_joined_train_val_set_for_sgdclassifier(X_train, y_train, X_val, y_val
     sklearn_val_mask = np.hstack( (np.zeros(len(y_train),dtype=bool),  np.ones(len(y_val),dtype=bool)) )
     return X_train_val, y_train_val, sklearn_val_mask
 
+
+
+
+
 rule sgdclassifier_optimize_optuna:
     output:
         (params_dir+
@@ -488,7 +496,7 @@ rule sgdclassifier_optimize_optuna:
         "/params_sgdclassifier_{n_trials}.json")
     input:
         splits_dir+"/{dataset}_{group}/{num_train_per_class}_{num_val}_{num_test}_{split_seed}"+npz_ending,
-        aggregated_datasets_dir+"/{dataset}_{group}_{round}_dense"+pickle_ending
+        dataset_dir_conditional_on_mutator_dense
     run:
         (X_train, y_train, X_val, y_val)=load_dataset_splitted(input[0], input[1], wildcards=wildcards)
         X_train_val, y_train_val, sklearn_val_mask = create_joined_train_val_set_for_sgdclassifier(X_train, y_train, X_val, y_val)
@@ -522,7 +530,7 @@ rule sgdclassifier_train_predict_opticlassifier:
         "/sgdclassifier_opti({opti_split_seed},{param_search_n_trials}).npy")
     input :
         splits_dir+"/{dataset}_{group}/{num_train_per_class}_{num_val}_{num_test}_{split_seed}"+npz_ending,
-        aggregated_datasets_dir+"/{dataset}_{group}_{round}_dense"+pickle_ending,
+        dataset_dir_conditional_on_mutator_dense,
         (params_dir+
             "/{dataset}_{group}"+
             "/round_{round}"+
@@ -544,6 +552,67 @@ rule sgdclassifier_train_predict_opticlassifier:
 
 
 
+
+rule explbooster_optimize_optuna:
+    output:
+        (params_dir+
+        "/{dataset}_{group}"+
+        "/round_{round}"+
+        full_output_split_str+
+        "/params_explbooster_{n_trials}.json")
+    input:
+        splits_dir+"/{dataset}_{group}/{num_train_per_class}_{num_val}_{num_test}_{split_seed}"+npz_ending,
+        dataset_dir_conditional_on_mutator
+    run:
+        (X_train, y_train, X_val, y_val)=load_dataset_splitted(input[0], input[1], wildcards=wildcards)
+        X_train_val, y_train_val, _ = create_joined_train_val_set_for_sgdclassifier(X_train, y_train, X_val, y_val)
+
+        from graph_description.training_utils import explbooster_objective
+
+        objective = partial(explbooster_objective,
+                            validation_size=len(X_val),
+                            X_train_val=X_train_val,
+                            y_train_val=y_train_val,
+                            X_val=X_val,
+                            y_val=y_val)
+
+        run_and_save_study(
+            objective=objective,
+            study_name = f"{wildcards.dataset}-{wildcards.round}-{wildcards.num_train_per_class}-explbooster",
+            direction="maximize",
+            n_trials=wildcards.n_trials,
+            out_path=output[0]
+        )
+# snakemake "./snakemake_base/classifier_predictions/pubmed_planetoid/round_1/split_50_500_rest_0/sgdclassifier_opti(0, 220).npy" --cores=1
+
+
+
+rule explbooster_train_predict_opticlassifier:
+    output :
+        (prediction_dir+
+        "/{dataset}_{group}"+
+        "/round_{round}"+
+        full_output_split_str+
+        "/explbooster_opti({opti_split_seed},{param_search_n_trials}).npy")
+    input :
+        splits_dir+"/{dataset}_{group}/{num_train_per_class}_{num_val}_{num_test}_{split_seed}"+npz_ending,
+        dataset_dir_conditional_on_mutator,
+        (params_dir+
+            "/{dataset}_{group}"+
+            "/round_{round}"+
+            "/split{split_mutator}{num_train_per_class}_{num_val}_{num_test}_{opti_split_seed}"+
+            "/params_explbooster_{param_search_n_trials}.json")
+    run :
+        (X_train, y_train, X_val, y_val, df)=load_dataset_splitted(input[0], input[1], return_val=True, return_full=True, wildcards=wildcards)
+        X_train_val, y_train_val, _ = create_joined_train_val_set_for_sgdclassifier(X_train, y_train, X_val, y_val)
+
+        from graph_description.training_utils import explbooster_train_classifier, TrialWrapperDict
+
+        trial = TrialWrapperDict(input[2])
+        clf = explbooster_train_classifier(trial, len(X_val), X_train_val, y_train_val)
+
+        prediction = clf.predict(df.drop("labels", axis=1))
+        np.save(output[0], prediction, allow_pickle=False)
 
 
 
@@ -821,10 +890,13 @@ rule agg_train_per_class:
         #wildcard_values = tuple(wildcards.values())
         #wildcard_keys = tuple(wildcards.keys())
         def extract_num_train_from_path(s):
-            if "/xgbclass" in s:
-                return int(s.split("split_")[1].split("/xgbclass")[0].split("_")[0])
             return 0
+            if "labelsonly" in s:
+                return int(s.split("split_labelsonly_")[1].split("/xgbclass")[0].split("_")[0])
+            else:
+                return int(s.split("split_")[1].split("/xgbclass")[0].split("_")[0])
         def extract_split_seed_from_path(s):
+            return 0
             if "/xgbclass" in s:
                 return int(s.split("split_")[1].split("/xgbclass")[0].split("_")[3])
             return 0
@@ -875,6 +947,12 @@ def remove_citationfull_cora2(l):
 
 for group, datasets in datasets_per_group.items():
     for mutator in ["_", "_labelsonly_"]:
+        if mutator=="_":
+            rounds = ["round_0", "round_1", "round_2"]
+        elif mutator == "_labelsonly_":
+            rounds = ["round_1", "round_2", "round_3"]
+        else:
+            raise ValueError(mutator)
         rule_name = f"make_all_{group}_{mutator}"
         rule:
             name :rule_name,
@@ -887,7 +965,7 @@ for group, datasets in datasets_per_group.items():
                 "/split{split_mutator}{{dyn_num_train_per_class}}_{{num_val}}_{{num_test}}_{{dyn_split_seed}}"+
                 "/{{joker}}"+csv_ending),
                 dataset=datasets, group=group,
-                round=["round_0", "round_1", "round_2"],
+                round=rounds,
                 split=["", "_train", "_val"],
                 split_mutator=[mutator])),
             output :
